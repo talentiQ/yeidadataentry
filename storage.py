@@ -35,7 +35,7 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
 
     ensure_parent(output_path)
 
-    # Create output from template
+    # Create output from template first time
     if not output_path.exists():
 
         copyfile(
@@ -154,33 +154,27 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
 
     ws[f"AP{next_row}"] = row.get("plot_size", "")
 
-    # =====================================================
-    # COPY FORMULAS
-    # =====================================================
+    ws[f"AQ{next_row}"] = row.get("asset_cost", "")
 
-    formula_columns = [
-        "AQ",
-        "AR",
-        "AS",
-        "AT",
-        "AU",
-        "AV",
-        "AW",
-        "AX",
-        "AY",
-        "AZ",
-        "BA",
-        "BB",
-        "BC",
-    ]
+    ws[f"AR{next_row}"] = row.get("amt_financed", "")
 
-    prev_row = max(4, next_row - 1)
+    # PF Amount Fixed
+    ws[f"AS{next_row}"] = 5900
 
-    for col in formula_columns:
+    # Interest Amount
+    try:
 
-        ws[f"{col}{next_row}"] = (
-            ws[f"{col}{prev_row}"].value
+        financed = float(
+            row.get("amt_financed") or 0
         )
+
+        interest = round(financed * 0.10)
+
+    except Exception:
+
+        interest = ""
+
+    ws[f"AT{next_row}"] = interest
 
     # =====================================================
     # SAVE
