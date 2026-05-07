@@ -1,5 +1,4 @@
 import base64
-import json
 import mimetypes
 import os
 import re
@@ -10,271 +9,465 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 
+# =========================================================
+# OCR MODEL
+# =========================================================
+
 class YEIDAExtract(BaseModel):
-    # Core application details
-    form_no: Optional[str] = Field(default=None, description="YEIDA form number / RPS number")
-    application_no: Optional[str] = Field(default=None, description="YEIDA application number / RPS number")
+
+    form_no: Optional[str] = None
+    application_no: Optional[str] = None
+
     applicant_name: Optional[str] = None
     father_or_husband_name: Optional[str] = None
-    category: Optional[str] = Field(default=None, description="GENERAL, SC, ST, OBC, etc.")
+
+    category: Optional[str] = None
     sub_category: Optional[str] = None
-    plot_size: Optional[int] = Field(default=None, description="Plot size in square metres")
-    date_of_birth: Optional[str] = Field(default=None, description="DD/MM/YYYY if visible")
+
+    plot_size: Optional[int] = None
+
+    date_of_birth: Optional[str] = None
+
     gender: Optional[str] = None
     marital_status: Optional[str] = None
-    age: Optional[int] = None
-    handicapped: Optional[str] = None
-    payment_plan: Optional[str] = None
-    registration_money: Optional[float] = None
-    form_fees: Optional[float] = None
-    deposit_amount: Optional[float] = None
-    paid_by: Optional[str] = None
 
-    # Co-applicant
-    co_applicant_name: Optional[str] = None
-    relation_with_applicant: Optional[str] = None
-    co_father_or_husband_name: Optional[str] = None
-
-    # Address/contact
-    mailing_address_1: Optional[str] = None
-    mailing_address_2: Optional[str] = None
-    mailing_address_3: Optional[str] = None
-    mailing_city: Optional[str] = None
-    mailing_pincode: Optional[str] = None
-    permanent_address_1: Optional[str] = None
-    permanent_address_2: Optional[str] = None
-    permanent_address_3: Optional[str] = None
-    permanent_city: Optional[str] = None
-    permanent_pincode: Optional[str] = None
     mobile_no: Optional[str] = None
     email: Optional[str] = None
 
-    # Bank details
+    mailing_address_1: Optional[str] = None
+    mailing_address_2: Optional[str] = None
+    mailing_address_3: Optional[str] = None
+
+    mailing_city: Optional[str] = None
+    mailing_pincode: Optional[str] = None
+
     account_name: Optional[str] = None
     bank_name: Optional[str] = None
     branch_name: Optional[str] = None
     account_number: Optional[str] = None
     ifsc_code: Optional[str] = None
+
     pan_number: Optional[str] = None
-    id_proof_no: Optional[str] = Field(default=None, description="Only the last digit of Aadhaar/id proof if visible; otherwise null")
 
-    # Receipt / handwritten cover details
+    receipt_no: Optional[str] = None
+
+    handwritten_receipt_no: Optional[str] = None
     printed_receipt_no: Optional[str] = None
-    handwritten_receipt_no: Optional[str] = Field(default=None, description="Blue-circled or handwritten receipt number. Prefer this over printed receipt.")
-    receipt_no: Optional[str] = Field(default=None, description="Final receipt number to use. Prefer handwritten/blue-circled number.")
-    sol_id: Optional[str] = None
-    emd_branch: Optional[str] = None
-    payment_date: Optional[str] = None
-    dd_utr_no: Optional[str] = None
-    payment_id: Optional[str] = None
 
-    # Overrides/rules
+    sol_id: Optional[str] = None
+
     account_type: Optional[str] = None
+
     employment_type: Optional[str] = None
 
-    # Pricing derived by code, but model can extract if visible
+    amt_financed: Optional[float] = None
     asset_cost: Optional[float] = None
-    customer_contribution: Optional[float] = None
-    amt_financed: Optional[float] = Field(default=None, description="Bank loan / amount financed")
 
     notes: Optional[str] = None
 
 
+# =========================================================
+# SYSTEM PROMPT
+# =========================================================
+
 SYSTEM_PROMPT = """
-You are a precise data-extraction agent for YEIDA / Yamuna Expressway Industrial Development Authority RPS-10 2026 forms and EMD funding/loan agreement packets.
+You are an OCR extraction system for YEIDA RPS forms.
 
-Extract details from ALL uploaded images for ONE applicant. Images may include:
-- YEIDA confirmation/application form
-- mailing/permanent address page
-- bank details page
-- online payment receipt
-- handwritten cover page with receipt number / account type / SOL ID
+Extract clean structured data from uploaded form images.
 
-Important rules:
-1. Never invent Aadhaar, PAN, bank account, DOB, mobile, receipt, or address data. Use null if not visible.
-2. For ID proof/Aadhaar number, return ONLY the LAST DIGIT if visible. If Aadhaar is not visible, return null.
-3. If a handwritten or blue-circled receipt number appears, use that as handwritten_receipt_no and final receipt_no, even if the printed receipt page shows a different online receipt number.
-4. If no handwritten/circled receipt number appears, use printed receipt number as receipt_no.
-5. Extract account type only if visible/handwritten, otherwise leave null. The application will apply default/override.
-6. Employment type should be SALARIED unless explicitly contradicted.
-7. Normalize categories: GENERAL, SC, ST, OBC, EWS, GENERAL AND OTHERS.
-8. Mobile number must be digits only, normally 10 digits. If multiple numbers appear, prefer the number on receipt/form for the applicant.
-9. Do not include explanations outside the schema.
-""".strip()
+Rules:
+- Never guess PAN/mobile/account numbers.
+- Prefer handwritten receipt number.
+- Mobile should contain digits only.
+- PAN should be uppercase.
+- Category values:
+  GENERAL AND OTHERS
+  SC
+  ST
+  OBC
+  EWS
+- Return null if not visible.
+"""
 
+
+# =========================================================
+# IMAGE ENCODING
+# =========================================================
 
 def encode_image_to_data_url(path: Path) -> str:
+
     mime, _ = mimetypes.guess_type(path)
+
     if not mime:
         mime = "image/jpeg"
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
+
+    encoded = base64.b64encode(
+        path.read_bytes()
+    ).decode("utf-8")
+
     return f"data:{mime};base64,{encoded}"
 
 
-def extract_from_images(image_paths: List[Path], model: Optional[str] = None) -> YEIDAExtract:
-    if not image_paths:
-        raise ValueError("No image files were provided.")
+# =========================================================
+# OCR EXTRACTION
+# =========================================================
 
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+def extract_from_images(
+    image_paths: List[Path],
+    model: Optional[str] = None,
+) -> YEIDAExtract:
+
+    if not image_paths:
+        raise ValueError("No images uploaded")
+
+    client = OpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY")
+    )
+
+    model = model or os.environ.get(
+        "OPENAI_MODEL",
+        "gpt-4.1-mini",
+    )
 
     content = [
         {
             "type": "input_text",
-            "text": (
-                "Extract one YEIDA applicant entry from these images. "
-                "Prefer handwritten/blue-circled receipt number for final receipt_no. "
-                "Return structured data only."
-            ),
+            "text": "Extract applicant data from YEIDA RPS form images.",
         }
     ]
 
-    for p in image_paths:
-        content.append({"type": "input_image", "image_url": encode_image_to_data_url(p)})
+    for path in image_paths:
 
-    # Responses API with SDK parsing into the Pydantic schema.
+        content.append({
+            "type": "input_image",
+            "image_url": encode_image_to_data_url(path),
+        })
+
     response = client.responses.parse(
         model=model,
         input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": content},
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": content,
+            },
         ],
         text_format=YEIDAExtract,
     )
 
     parsed = response.output_parsed
-    if parsed is None:
-        raise RuntimeError("Model did not return parsed structured data.")
+
+    if not parsed:
+        raise RuntimeError("OCR extraction failed")
+
     return parsed
 
 
-def only_digits(value: Optional[str]) -> Optional[str]:
-    if value is None:
+# =========================================================
+# HELPERS
+# =========================================================
+
+def only_digits(value):
+
+    if not value:
         return None
+
     digits = re.sub(r"\D", "", str(value))
+
     return digits or None
 
 
-def normalize_text(value: Optional[str]) -> Optional[str]:
-    if value is None:
+def normalize_text(value):
+
+    if not value:
         return None
-    text = re.sub(r"\s+", " ", str(value)).strip()
-    return text or None
+
+    value = re.sub(r"\s+", " ", str(value))
+
+    return value.strip()
 
 
-def normalize_category(value: Optional[str]) -> Optional[str]:
+def normalize_category(value):
+
     text = normalize_text(value)
+
     if not text:
         return None
+
     upper = text.upper()
-    if "SC" == upper or "SCHEDULED CASTE" in upper:
+
+    if "SC" in upper:
         return "SC"
-    if "ST" == upper or "SCHEDULED TRIBE" in upper:
+
+    if "ST" in upper:
         return "ST"
+
     if "OBC" in upper:
         return "OBC"
+
     if "EWS" in upper:
         return "EWS"
-    if "GENERAL" in upper:
-        return "GENERAL AND OTHERS"
-    return upper
+
+    return "GENERAL AND OTHERS"
 
 
-# Pricing table from the YEIDA EMD finance sheet used in the uploaded documents.
-# Asset cost is registration/earnest money * 10. Amt financed is bank loan.
+# =========================================================
+# NAME SPLIT
+# =========================================================
+
+def split_name(full_name):
+
+    full_name = normalize_text(full_name)
+
+    if not full_name:
+        return "", "", ""
+
+    parts = full_name.split()
+
+    if len(parts) == 1:
+        return parts[0], "", ""
+
+    if len(parts) == 2:
+        return parts[0], "", parts[1]
+
+    return (
+        parts[0],
+        " ".join(parts[1:-1]),
+        parts[-1],
+    )
+
+
+# =========================================================
+# PRICING
+# =========================================================
+
 PRICING = {
-    "GENERAL": {
-        162: {"registration_money": 587412, "deposit_amount": 58741, "amt_financed": 528671, "asset_cost": 5874120},
-        183: {"registration_money": 663588, "deposit_amount": 66359, "amt_financed": 597229, "asset_cost": 6635880},
-        184: {"registration_money": 667184, "deposit_amount": 66718, "amt_financed": 600466, "asset_cost": 6671840},
-        200: {"registration_money": 725200, "deposit_amount": 72520, "amt_financed": 652680, "asset_cost": 7252000},
-        223: {"registration_money": 808598, "deposit_amount": 80860, "amt_financed": 727738, "asset_cost": 8085980},
-        290: {"registration_money": 1051540, "deposit_amount": 105154, "amt_financed": 946386, "asset_cost": 10515400},
+    162: {
+        "asset_cost": 5874120,
+        "amt_financed": 528671,
     },
-    "SCST": {
-        162: {"registration_money": 293706, "deposit_amount": 29371, "amt_financed": 264335, "asset_cost": 2937060},
-        183: {"registration_money": 331779, "deposit_amount": 33178, "amt_financed": 298601, "asset_cost": 3317790},
-        184: {"registration_money": 333592, "deposit_amount": 33359, "amt_financed": 300233, "asset_cost": 3335920},
-        200: {"registration_money": 362600, "deposit_amount": 36260, "amt_financed": 326340, "asset_cost": 3626000},
-        223: {"registration_money": 404299, "deposit_amount": 40430, "amt_financed": 363869, "asset_cost": 4042990},
-        290: {"registration_money": 525770, "deposit_amount": 52577, "amt_financed": 473193, "asset_cost": 5257700},
+    183: {
+        "asset_cost": 6635880,
+        "amt_financed": 597229,
+    },
+    184: {
+        "asset_cost": 6671840,
+        "amt_financed": 600466,
+    },
+    200: {
+        "asset_cost": 7252000,
+        "amt_financed": 652680,
+    },
+    223: {
+        "asset_cost": 8085980,
+        "amt_financed": 727738,
+    },
+    290: {
+        "asset_cost": 10515400,
+        "amt_financed": 946386,
     },
 }
 
 
-def pricing_key(category: Optional[str]) -> str:
-    cat = normalize_category(category) or "GENERAL"
-    return "SCST" if cat in {"SC", "ST"} else "GENERAL"
-
+# =========================================================
+# BUSINESS RULES
+# =========================================================
 
 def apply_business_rules(
     data: YEIDAExtract,
-    account_type_override: Optional[str] = None,
-    category_override: Optional[str] = None,
-    receipt_override: Optional[str] = None,
-    sol_id_override: Optional[str] = None,
-) -> dict:
-    row = data.model_dump()
+    account_type_override=None,
+    category_override=None,
+    receipt_override=None,
+    sol_id_override=None,
+):
 
-    # Normalize text fields
-    for k, v in list(row.items()):
+    extracted = data.model_dump()
+
+    # Normalize strings
+    for k, v in extracted.items():
+
         if isinstance(v, str):
-            row[k] = normalize_text(v)
+            extracted[k] = normalize_text(v)
 
-    # Application/Form no fallback
-    row["application_no"] = row.get("application_no") or row.get("form_no")
-    row["form_no"] = row.get("form_no") or row.get("application_no")
-
-    # Receipt priority: manual override > handwritten/blue circle > model final > printed
-    final_receipt = (
-        only_digits(receipt_override)
-        or only_digits(row.get("handwritten_receipt_no"))
-        or only_digits(row.get("receipt_no"))
-        or only_digits(row.get("printed_receipt_no"))
+    # Name split
+    first_name, middle_name, last_name = split_name(
+        extracted.get("applicant_name")
     )
-    row["receipt_no"] = final_receipt
 
-    # Account type priority: manual override > extracted/handwritten > default
-    row["account_type"] = normalize_text(account_type_override) or normalize_text(row.get("account_type")) or os.environ.get("DEFAULT_ACCOUNT_TYPE", "31")
+    # Plot size
+    plot_size = extracted.get("plot_size")
 
-    # Employment always salaried unless you change default in .env
-    row["employment_type"] = os.environ.get("DEFAULT_EMPLOYMENT", "SALARIED")
-
-    # Category override + normalization
-    row["category"] = normalize_category(category_override or row.get("category"))
-    row["sub_category"] = normalize_category(row.get("sub_category"))
-
-    # IDs / contact cleanup
-    row["mobile_no"] = only_digits(row.get("mobile_no"))
-    row["id_proof_no"] = only_digits(row.get("id_proof_no"))[-1:] if only_digits(row.get("id_proof_no")) else None
-    row["pan_number"] = normalize_text(row.get("pan_number"))
-    row["ifsc_code"] = normalize_text(row.get("ifsc_code"))
-    row["sol_id"] = only_digits(sol_id_override) or only_digits(row.get("sol_id"))
-
-    # Pricing by category + plot size. Prefer calculated standard values because receipt may show contribution only.
-    plot_size = row.get("plot_size")
     try:
-        plot_size = int(plot_size) if plot_size is not None else None
-        row["plot_size"] = plot_size
+        plot_size = int(plot_size)
     except Exception:
         plot_size = None
 
-    if plot_size:
-        table = PRICING.get(pricing_key(row.get("category")), {})
-        price = table.get(plot_size)
-        if price:
-            row["registration_money"] = float(price["registration_money"])
-            row["deposit_amount"] = float(price["deposit_amount"])
-            row["customer_contribution"] = float(price["deposit_amount"])
-            row["amt_financed"] = float(price["amt_financed"])
-            row["asset_cost"] = float(price["asset_cost"])
+    # Pricing
+    asset_cost = None
+    amt_financed = None
 
-    # Form fee defaults
-    if row.get("form_fees") is None:
-        row["form_fees"] = 600.0
+    if plot_size in PRICING:
 
-    # Paid by defaults
-    if not row.get("paid_by"):
-        row["paid_by"] = "EMD"
+        asset_cost = PRICING[plot_size]["asset_cost"]
+
+        amt_financed = PRICING[plot_size]["amt_financed"]
+
+    # Final row
+    row = {
+
+        # Basic
+        "lot_no": "",
+        "file_no": "",
+
+        "rps_no": (
+            extracted.get("application_no")
+            or extracted.get("form_no")
+        ),
+
+        "receipt_no": (
+            only_digits(receipt_override)
+            or only_digits(
+                extracted.get(
+                    "handwritten_receipt_no"
+                )
+            )
+            or only_digits(
+                extracted.get("receipt_no")
+            )
+            or only_digits(
+                extracted.get(
+                    "printed_receipt_no"
+                )
+            )
+        ),
+
+        "sourcing_branch": "",
+
+        # Name
+        "first_name": first_name,
+        "middle_name": middle_name,
+        "last_name": last_name,
+
+        # Personal
+        "dob": extracted.get("date_of_birth"),
+
+        "gender": extracted.get("gender"),
+
+        "marital_status": extracted.get(
+            "marital_status"
+        ),
+
+        "category": normalize_category(
+            category_override
+            or extracted.get("category")
+        ),
+
+        "pan_no": extracted.get(
+            "pan_number"
+        ),
+
+        "religion": "",
+
+        "current_residence": "",
+
+        "qualification": "",
+
+        "profession": (
+            extracted.get("employment_type")
+            or "SALARIED"
+        ),
+
+        # Address
+        "address_1": extracted.get(
+            "mailing_address_1"
+        ),
+
+        "address_2": extracted.get(
+            "mailing_address_2"
+        ),
+
+        "address_3": extracted.get(
+            "mailing_address_3"
+        ),
+
+        "city": extracted.get(
+            "mailing_city"
+        ),
+
+        "state": "",
+
+        "zip_code": extracted.get(
+            "mailing_pincode"
+        ),
+
+        # Contact
+        "phone_1": "",
+
+        "phone_2": "",
+
+        "mobile": only_digits(
+            extracted.get("mobile_no")
+        ),
+
+        "email": extracted.get("email"),
+
+        # Bank
+        "repayment_mode": "AUTO DEBIT",
+
+        "account_no": extracted.get(
+            "account_number"
+        ),
+
+        "micr": "",
+
+        "ifsc": extracted.get(
+            "ifsc_code"
+        ),
+
+        "bank_name": extracted.get(
+            "bank_name"
+        ),
+
+        "account_type": (
+            account_type_override
+            or extracted.get("account_type")
+            or "31"
+        ),
+
+        # KYC
+        "id_proof_no": "",
+
+        "id_expiry": "",
+
+        "id_doc_type": "",
+
+        "address_proof_no": "",
+
+        "address_expiry": "",
+
+        "address_doc_type": "",
+
+        # SC/ST
+        "sc_st_flag": (
+            "YES"
+            if normalize_category(
+                extracted.get("category")
+            ) in ["SC", "ST"]
+            else "NO"
+        ),
+
+        # Property
+        "plot_size": plot_size,
+
+        "asset_cost": asset_cost,
+
+        "amt_financed": amt_financed,
+
+        # Notes
+        "notes": extracted.get("notes"),
+    }
 
     return row
