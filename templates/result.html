@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Entry added to row {{ row_number }}</h1>
+  <p>The Excel master file and XML file have been updated.</p>
+  <a class="btn" href="{{ url_for('download_excel') }}">Download Excel</a>
+  <a class="btn secondary" href="{{ url_for('download_xml') }}">Download XML</a>
+  <a class="btn light" href="{{ url_for('index') }}">Add another applicant</a>
+</div>
+
+<div class="card">
+  <h2>Extracted row preview</h2>
+  <table>
+    <tbody>
+      <tr><th>Applicant</th><td>{{ row.get('applicant_name') }}</td></tr>
+      <tr><th>Application No</th><td>{{ row.get('application_no') }}</td></tr>
+      <tr><th>Receipt No</th><td>{{ row.get('receipt_no') }}</td></tr>
+      <tr><th>Mobile</th><td>{{ row.get('mobile_no') }}</td></tr>
+      <tr><th>Category</th><td>{{ row.get('category') }}</td></tr>
+      <tr><th>Plot Size</th><td>{{ row.get('plot_size') }}</td></tr>
+      <tr><th>Account Type</th><td>{{ row.get('account_type') }}</td></tr>
+      <tr><th>Employment</th><td>{{ row.get('employment_type') }}</td></tr>
+      <tr><th>Asset Cost</th><td>{{ row.get('asset_cost') }}</td></tr>
+      <tr><th>Amt Financed</th><td>{{ row.get('amt_financed') }}</td></tr>
+      <tr><th>Bank</th><td>{{ row.get('bank_name') }}</td></tr>
+      <tr><th>PAN</th><td>{{ row.get('pan_number') }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
