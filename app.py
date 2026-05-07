@@ -16,6 +16,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_FOLDER = Path("/tmp/uploads")
 DATA_DIR = BASE_DIR / "data"
 MASTER_XLSX = BASE_DIR / os.environ.get("MASTER_XLSX", "data/YEIDA_MASTER.xlsx")
 MASTER_XML = BASE_DIR / os.environ.get("MASTER_XML", "data/YEIDA_MASTER.xml")
@@ -33,7 +34,7 @@ def allowed_file(filename: str) -> bool:
 
 def save_uploaded_images(files) -> List[Path]:
     batch_id = uuid.uuid4().hex[:12]
-    batch_dir = UPLOAD_DIR / batch_id
+    batch_dir = Path("/tmp/uploads") / batch_id
     batch_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths = []
