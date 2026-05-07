@@ -68,22 +68,25 @@ def ensure_parent(path: Path) -> None:
 
 def _find_next_empty_row(ws) -> int:
     """
-    Return the first row (>= 4) where BOTH col D (RPS No) and
-    col E (Receipt No) are blank.
+    Return the row number immediately after the last occupied data row.
 
-    The original code only checked col E and started from row 4,
-    which caused it to overwrite row 4 even when row 5 had real data
-    because E4 was None (no formula, no value) → while-condition was
-    False immediately → next_row stayed at 4.
+    FIX: The previous implementation searched for the FIRST empty row
+    starting from row 4. Because the template always has row 4 blank
+    (with Aditya or other pre-loaded data sitting in row 5+), every
+    new submission was written to row 4, overwriting itself each time.
+
+    This version scans all rows to find the LAST row that has content
+    in either col D (RPS No) or col E (Receipt No), then returns
+    last_occupied + 1 so new entries always append cleanly after
+    all existing data regardless of any gaps in the sheet.
     """
-    row = 4
-    while True:
-        d_val = ws[f"D{row}"].value
-        e_val = ws[f"E{row}"].value
-        # A row is "occupied" if either key identifier column has content
-        if d_val in (None, "") and e_val in (None, ""):
-            return row
-        row += 1
+    last_data_row = 3  # row 3 is the header; data starts at row 4
+    for row in range(4, ws.max_row + 2):
+        d_val = ws.cell(row, 4).value  # col D = RPS No
+        e_val = ws.cell(row, 5).value  # col E = Receipt No
+        if d_val not in (None, "") or e_val not in (None, ""):
+            last_data_row = row
+    return last_data_row + 1
 
 
 def _inject_validation_formulas(ws, row: int) -> None:
@@ -119,7 +122,7 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     wb = load_workbook(output_path)
     ws = wb.active
 
-    # ── Find first truly empty data row ─────────────────────────────────
+    # ── Find next append row (always after last occupied row) ────────────
     next_row = _find_next_empty_row(ws)
 
     # ── Serial number ────────────────────────────────────────────────────
@@ -189,7 +192,7 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     # PF Amount – fixed at ₹5,900
     ws[f"AS{next_row}"] = 5900
 
-    # Interest Amount – 10 % of financed amount
+    # Interest Amount – 10% of financed amount
     try:
         financed = float(row.get("amt_financed") or 0)
         interest = round(financed * 0.10)
@@ -213,18 +216,25 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
 def read_all_rows_from_excel(path: Path) -> List[Dict]:
     """
     Read every data row (row 4+) that has at least one non-blank value
-    in the core data columns (A–AT).  Validation columns AU–BC contain
-    Excel formula strings when opened without data_only, so we evaluate
-    them locally with the simple rules that mirror the sheet formulas.
+    in the core identifier columns (D = RPS No, E = Receipt No).
+
+    Validation columns AU–BC contain Excel formula strings when opened
+    without data_only, so we evaluate them locally using _compute_validation()
+    as a fallback when cached results are absent.
 
     Returns a list of dicts keyed by column letter for data columns, plus
     a "validation" sub-dict for AU–BC derived values.
+
+    Performance note: the template pre-fills formulas through row 10050,
+    so ws.max_row returns 10050 even for a file with 2 data rows. We stop
+    scanning after 100 consecutive empty rows to avoid reading all 10,050.
     """
     if not path.exists():
         return []
 
-    # Load WITHOUT data_only so we can read col D values (not formula text)
-    # and detect whether validation formula cells are present.
+    # Load WITH data_only=True to read cached cell values rather than
+    # raw formula strings. Note: if the file was never opened in real Excel,
+    # formula results (AU–BC) may be None; _compute_validation() handles that.
     wb = load_workbook(path, data_only=True)
     ws = wb.active
 
@@ -256,14 +266,20 @@ def read_all_rows_from_excel(path: Path) -> List[Dict]:
     }
 
     rows_out = []
+    empty_streak = 0  # FIX: stop scanning after 100 consecutive empty rows
 
     for r in range(4, ws.max_row + 1):
         # Read data columns
         data = {key: ws[f"{col}{r}"].value for col, key in DATA_COLS.items()}
 
-        # Skip completely blank rows (check key identifier columns)
+        # Skip blank rows, but track consecutive empties for early exit
         if data["rps_no"] in (None, "") and data["receipt_no"] in (None, ""):
+            empty_streak += 1
+            if empty_streak > 100:
+                break
             continue
+
+        empty_streak = 0  # reset on finding a real row
 
         # Read validation columns (data_only=True returns cached formula result
         # if Excel last saved with calculated values; otherwise None)
@@ -293,7 +309,7 @@ def _compute_validation(data: Dict) -> Dict:
     repay = str(data.get("repayment_mode") or "").strip().upper()
     rps = str(data.get("rps_no") or "").strip()
 
-    # AU – PAN format (5 alpha + P + 1 alpha + 4 digits + 1 alpha)
+    # AU – PAN format (3 alpha + P + 1 alpha + 4 digits + 1 alpha = 10 chars)
     pan_ok = bool(re.match(r'^[A-Z]{3}P[A-Z]\d{4}[A-Z]$', pan)) if pan else None
     au = "✔ Valid PAN" if pan_ok else ("✘ Invalid PAN" if pan else "")
 
@@ -310,7 +326,7 @@ def _compute_validation(data: Dict) -> Dict:
     except Exception:
         ax = "" if not plot else "✘ Invalid Size"
 
-    # AY – Category  (matches Excel: GEN | SC/ST | SC | ST)
+    # AY – Category (matches Excel: GEN | SC/ST | SC | ST)
     ay = "✔ Valid Cat" if category in {"GEN", "SC/ST", "SC", "ST"} else ("✘ Invalid Cat" if category else "")
 
     # AZ – IFSC / repayment mode
@@ -355,16 +371,16 @@ def write_xml_from_excel(xlsx_path: Path, xml_path: Path) -> None:
     root.set("count", str(len(rows)))
 
     for idx, row_data in enumerate(rows, start=1):
-        app = ET.SubElement(root, "Application")
-        app.set("row", str(idx))
+        app_el = ET.SubElement(root, "Application")
+        app_el.set("row", str(idx))
 
         # Flatten validation sub-dict into the element
         validation = row_data.pop("validation", {})
         for key, value in row_data.items():
-            child = ET.SubElement(app, key)
+            child = ET.SubElement(app_el, key)
             child.text = "" if value is None else str(value)
 
-        val_el = ET.SubElement(app, "validation")
+        val_el = ET.SubElement(app_el, "validation")
         for key, value in validation.items():
             child = ET.SubElement(val_el, key)
             child.text = "" if value is None else str(value)

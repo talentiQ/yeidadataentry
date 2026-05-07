@@ -159,12 +159,13 @@ def process():
         )
         return redirect(url_for("index"))
 
-    # Optional form overrides
+    # Optional form overrides — all take priority over OCR extraction
     account_type_override = request.form.get("account_type") or None
-    category_override = request.form.get("category") or None
-    receipt_override = request.form.get("receipt_no") or None
-    sol_id_override = request.form.get("sol_id") or None
-    user_notes = request.form.get("notes") or None
+    category_override     = request.form.get("category") or None
+    receipt_override      = request.form.get("receipt_no") or None
+    sol_id_override       = request.form.get("sol_id") or None
+    plot_size_override    = request.form.get("plot_size") or None   # FIX: was missing
+    user_notes            = request.form.get("notes") or None
 
     try:
 
@@ -178,13 +179,14 @@ def process():
             category_override=category_override,
             receipt_override=receipt_override,
             sol_id_override=sol_id_override,
+            plot_size_override=plot_size_override,              # FIX: was missing
         )
 
-        # Append notes
+        # Append user notes (sol_id is already embedded inside row["notes"]
+        # by apply_business_rules; here we only append the free-text notes)
         if user_notes:
-            row["notes"] = (
-                f"{row.get('notes') or ''} {user_notes}"
-            ).strip()
+            existing = row.get("notes") or ""
+            row["notes"] = f"{existing} {user_notes}".strip()
 
         # Save data
         new_row_number = append_to_excel(row, MASTER_XLSX)

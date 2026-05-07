@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import mimetypes
 import os
@@ -71,22 +73,79 @@ class YEIDAExtract(BaseModel):
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are an OCR extraction system for YEIDA RPS forms.
+You are an OCR extraction agent for YEIDA RPS-10/2026 housing scheme documents.
 
-Extract clean structured data from uploaded form images.
+You will receive multiple images from ONE applicant's document set. These may include:
+1. YEIDA Application Form (APPLICATION-FORM-CUM-FACILITY AGREEMENT) — main multi-page form
+2. ICICI Bank Documents Receipt (pink slip) — has the ICICI booking receipt number
+3. YEIDA Online Payment Receipt — shows Application No, mobile, name, EMD/UPF amounts
+4. Aadhaar card (front: name, DOB, gender; back: address with W/O or S/O guardian name)
+5. PAN card — has PAN number, name, father/husband name, DOB
+6. Cancelled cheque — has account number, IFSC, bank name, account holder name
+7. NACH / Security Mandate form — has account number, IFSC, bank name
 
-Rules:
-- Never guess PAN/mobile/account numbers.
-- Prefer handwritten receipt number.
-- Mobile should contain digits only.
-- PAN should be uppercase.
-- Category values:
-  GENERAL AND OTHERS
-  SC
-  ST
-  OBC
-  EWS
-- Return null if not visible.
+Extract each field from the best available source:
+
+APPLICATION DETAILS:
+- application_no: 12-character YEIDA application/form number (format RPS10XXXXXXXX).
+  Find on YEIDA payment receipt as "Application No" or "Form No", or on the application
+  form header as "YEIDA From No." — e.g., RPS100225128.
+- receipt_no: ICICI Bank booking receipt number — short numeric code (3-6 digits) printed
+  at the bottom-right of the pink ICICI Documents Receipt slip. NOT the YEIDA receipt number.
+- handwritten_receipt_no: Same receipt number if it appears handwritten on the ICICI slip.
+- printed_receipt_no: Same receipt number if it appears printed on the ICICI slip.
+- sol_id: Branch SOL ID if visible on the ICICI receipt slip.
+
+APPLICANT PERSONAL DETAILS (from Application Form or Aadhaar):
+- applicant_name: Full name in CAPITALS exactly as written (e.g., "SHIKHA GOYAL").
+- father_or_husband_name: Father's name or spouse name as written on the form.
+- date_of_birth: Format dd/mm/yyyy — read from Aadhaar front or PAN card.
+- gender: MALE or FEMALE
+- marital_status: SINGLE, MARRIED, or OTHER
+- category: Exactly as ticked on the form — "GENERAL AND OTHERS", "SC", "ST", "OBC", or "EWS".
+- pan_number: Exactly 10 uppercase characters from the PAN card image (e.g., ALKPG2479G).
+  NEVER guess or invent a PAN number.
+- employment_type: As ticked on the form — SALARIED, PROFESSIONAL, or SELF EMPLOYED.
+- religion: As ticked — Hindu, Muslim, Sikh, Christian, Buddhist, or Others.
+
+PLOT SIZE:
+- plot_size: Plot size as an integer (square meters). Look for a plot size field on the
+  application form first. If not visible, infer from the YEIDA EMD receipt total amount:
+  ₹52,361 → 162 sqm | ₹59,723 → 183 sqm | ₹60,047 → 184 sqm |
+  ₹72,520 → 200 sqm | ₹72,774 → 223 sqm | ₹94,639 → 290 sqm
+
+ADDRESS (from Application Form or Aadhaar back):
+- mailing_address_1: House/flat number and street name.
+- mailing_address_2: Area / colony / sector (if present).
+- mailing_address_3: Landmark (if present).
+- mailing_city: City name.
+- mailing_pincode: 6-digit PIN code.
+
+CONTACT:
+- mobile_no: 10-digit mobile from the application form or YEIDA payment receipt.
+  Return digits ONLY — no spaces, dashes, or country codes.
+- email: Email address exactly as written on the application form.
+
+BANK DETAILS (from cancelled cheque or NACH mandate — prefer cheque):
+- account_number: Full account number as text, preserving any leading zeros
+  (e.g., "025401513496"). NEVER guess.
+- ifsc_code: Exactly 11-character IFSC from the cheque (e.g., ICIC0000254). NEVER guess.
+- bank_name: Bank name (e.g., "ICICI BANK").
+- account_type: SAVINGS or CURRENT.
+
+FINANCIAL:
+- amt_financed: The ICICI facility amount in rupees from the NACH mandate or application form
+  (e.g., 72520.0). This is the EMD loan amount ICICI will disburse.
+- asset_cost: Leave null — auto-computed from plot size by the system.
+
+Strict rules:
+- NEVER fabricate or guess PAN numbers, account numbers, IFSC codes, or mobile numbers.
+- Aadhaar numbers are always masked in scanned copies — do NOT attempt to read them.
+- Return null for any field that is not clearly visible in the images.
+- mobile_no: digits only, no dashes or spaces.
+- pan_number: uppercase only.
+- For receipt_no: use the short number from the ICICI pink booking slip, NOT the long YEIDA
+  online payment receipt numbers (which are 6 digits like 457507).
 """
 
 
@@ -120,7 +179,6 @@ def extract_from_images(
     if not image_paths:
         raise ValueError("No images uploaded")
 
-    # FIX: added timeout=60.0 to prevent hanging on large images
     client = OpenAI(
         api_key=os.environ.get("OPENAI_API_KEY"),
         timeout=60.0,
@@ -134,7 +192,7 @@ def extract_from_images(
     content = [
         {
             "type": "input_text",
-            "text": "Extract applicant data from YEIDA RPS form images.",
+            "text": "Extract applicant data from these YEIDA RPS-10/2026 scheme document images.",
         }
     ]
 
@@ -163,7 +221,7 @@ def extract_from_images(
     parsed = response.output_parsed
 
     if not parsed:
-        raise RuntimeError("OCR extraction failed")
+        raise RuntimeError("OCR extraction failed — no structured output returned")
 
     return parsed
 
@@ -200,9 +258,9 @@ def normalize_category(value):
     Excel AY formula checks:
       UPPER(TRIM(M)) = "GEN"  |  "SC/ST"  |  "SC"  |  "ST"
 
-    FIX: was returning 'GENERAL AND OTHERS' which always failed AY check.
-    FIX: added explicit 'SC/ST' check before individual SC/ST checks to
-         prevent 'SC/ST' input being mis-classified as just 'SC'.
+    OBC and EWS are not in the Excel AY valid set — mapped to GEN.
+    The original raw category is preserved in the applicant notes via
+    apply_business_rules so no information is silently lost.
     """
     text = normalize_text(value)
 
@@ -211,7 +269,7 @@ def normalize_category(value):
 
     upper = text.upper()
 
-    # Explicit combined check first
+    # Explicit combined check first to avoid SC/ST being split
     if "SC/ST" in upper:
         return "SC/ST"
 
@@ -221,8 +279,7 @@ def normalize_category(value):
     if "ST" in upper:
         return "ST"
 
-    # OBC and EWS are not in the Excel AY valid set — map to GEN
-    # FIX: was returning 'GENERAL AND OTHERS'; must be 'GEN' for AY formula
+    # OBC and EWS → GEN (only valid general-category value for AY formula)
     return "GEN"
 
 
@@ -294,13 +351,13 @@ def apply_business_rules(
     category_override=None,
     receipt_override=None,
     sol_id_override=None,
+    plot_size_override=None,       # FIX: was missing — manual override for plot size
 ):
 
     extracted = data.model_dump()
 
-    # Normalize strings
+    # Normalize all string fields
     for k, v in extracted.items():
-
         if isinstance(v, str):
             extracted[k] = normalize_text(v)
 
@@ -309,11 +366,10 @@ def apply_business_rules(
         extracted.get("applicant_name")
     )
 
-    # Plot size
-    plot_size = extracted.get("plot_size")
-
+    # Plot size — FIX: apply override before PRICING lookup
+    raw_plot = plot_size_override or extracted.get("plot_size")
     try:
-        plot_size = int(plot_size)
+        plot_size = int(raw_plot)
     except Exception:
         plot_size = None
 
@@ -322,28 +378,35 @@ def apply_business_rules(
     amt_financed = None
 
     if plot_size in PRICING:
-
         asset_cost = PRICING[plot_size]["asset_cost"]
         amt_financed = PRICING[plot_size]["amt_financed"]
 
     # Resolved category
-    resolved_category = normalize_category(
-        category_override or extracted.get("category")
-    )
+    raw_category = category_override or extracted.get("category")
+    resolved_category = normalize_category(raw_category)
 
-    # FIX: sc_st_flag was 'YES'/'NO' but template column AO uses 'Y'/'N'
+    # FIX: sc_st_flag uses 'Y'/'N' to match template column AO
     sc_st_flag = (
         "Y" if resolved_category in ("SC", "ST", "SC/ST") else "N"
     )
 
     # FIX: mobile must be stored as int so Excel ISNUMBER(AA{R}) = TRUE.
-    # only_digits() returns a string; wrapping in int() makes openpyxl
-    # write a numeric cell, which Excel recognises as a number.
     raw_mobile = only_digits(extracted.get("mobile_no"))
     try:
         mobile = int(raw_mobile) if raw_mobile else None
     except (ValueError, TypeError):
         mobile = None
+
+    # Build notes — FIX: sol_id_override is now recorded instead of silently dropped.
+    # Also flag if OCR category was remapped (OBC/EWS → GEN) so data entry can verify.
+    notes_parts = []
+    if sol_id_override:
+        notes_parts.append(f"SOL_ID: {sol_id_override}")
+    if raw_category and resolved_category == "GEN" and raw_category.upper() not in ("GEN", "GENERAL", "GENERAL AND OTHERS"):
+        notes_parts.append(f"OCR_CATEGORY: {raw_category} (mapped to GEN)")
+    if extracted.get("notes"):
+        notes_parts.append(extracted["notes"])
+    notes_value = " | ".join(notes_parts) or None
 
     row = {
 
@@ -357,8 +420,7 @@ def apply_business_rules(
         ),
 
         # Receipt: prefer override > handwritten > generic > printed
-        # only_digits() preserves leading zeros as a string, which is correct
-        # (storage writes it as-is; never cast to int)
+        # Kept as string (only_digits preserves leading zeros correctly)
         "receipt_no": (
             only_digits(receipt_override)
             or only_digits(extracted.get("handwritten_receipt_no"))
@@ -395,7 +457,7 @@ def apply_business_rules(
         # Contact
         "phone_1": "",
         "phone_2": "",
-        "mobile": mobile,   # FIX: now int, not string
+        "mobile": mobile,   # int so Excel ISNUMBER() = TRUE
         "email": extracted.get("email"),
 
         # Bank
@@ -418,7 +480,7 @@ def apply_business_rules(
         "address_expiry": "",
         "address_doc_type": "",
 
-        # SC/ST Flag — FIX: 'Y'/'N' to match template column AO
+        # SC/ST Flag — 'Y'/'N' to match template column AO
         "sc_st_flag": sc_st_flag,
 
         # Property
@@ -426,8 +488,8 @@ def apply_business_rules(
         "asset_cost": asset_cost,
         "amt_financed": amt_financed,
 
-        # Notes
-        "notes": extracted.get("notes"),
+        # Notes — FIX: sol_id and category remapping now recorded here
+        "notes": notes_value,
     }
 
     return row
