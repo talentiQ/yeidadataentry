@@ -6,3 +6,6 @@ data/*.xlsx
 data/*.xml
 data/*.json
 !.gitkeep
+
+.vercel
+.env*.local

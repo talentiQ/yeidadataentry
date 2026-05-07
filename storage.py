@@ -35,7 +35,7 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
 
     ensure_parent(output_path)
 
-    # First time create from template
+    # Create output from template
     if not output_path.exists():
 
         copyfile(
@@ -48,13 +48,13 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     ws = wb.active
 
     # =====================================================
-    # FIND NEXT ROW
+    # FIND FIRST EMPTY ROW
     # =====================================================
 
-    next_row = ws.max_row + 1
+    next_row = 4
 
-    if next_row < 4:
-        next_row = 4
+    while ws[f"E{next_row}"].value not in (None, ""):
+        next_row += 1
 
     # =====================================================
     # SERIAL NUMBER
@@ -174,15 +174,13 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
         "BC",
     ]
 
-    prev_row = next_row - 1
+    prev_row = max(4, next_row - 1)
 
-    if prev_row >= 4:
+    for col in formula_columns:
 
-        for col in formula_columns:
-
-            ws[f"{col}{next_row}"] = (
-                ws[f"{col}{prev_row}"].value
-            )
+        ws[f"{col}{next_row}"] = (
+            ws[f"{col}{prev_row}"].value
+        )
 
     # =====================================================
     # SAVE
