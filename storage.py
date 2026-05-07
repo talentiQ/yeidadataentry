@@ -310,7 +310,7 @@ def _compute_validation(data: Dict) -> Dict:
     except Exception:
         ax = "" if not plot else "✘ Invalid Size"
 
-    # AY – Category
+    # AY – Category  (matches Excel: GEN | SC/ST | SC | ST)
     ay = "✔ Valid Cat" if category in {"GEN", "SC/ST", "SC", "ST"} else ("✘ Invalid Cat" if category else "")
 
     # AZ – IFSC / repayment mode

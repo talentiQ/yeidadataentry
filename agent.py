@@ -120,8 +120,10 @@ def extract_from_images(
     if not image_paths:
         raise ValueError("No images uploaded")
 
+    # FIX: added timeout=60.0 to prevent hanging on large images
     client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY")
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        timeout=60.0,
     )
 
     model = model or os.environ.get(
@@ -191,7 +193,17 @@ def normalize_text(value):
 
 
 def normalize_category(value):
+    """
+    Normalise raw OCR category text to the values the Excel AY formula
+    accepts: GEN · SC · ST · SC/ST.
 
+    Excel AY formula checks:
+      UPPER(TRIM(M)) = "GEN"  |  "SC/ST"  |  "SC"  |  "ST"
+
+    FIX: was returning 'GENERAL AND OTHERS' which always failed AY check.
+    FIX: added explicit 'SC/ST' check before individual SC/ST checks to
+         prevent 'SC/ST' input being mis-classified as just 'SC'.
+    """
     text = normalize_text(value)
 
     if not text:
@@ -199,19 +211,19 @@ def normalize_category(value):
 
     upper = text.upper()
 
+    # Explicit combined check first
+    if "SC/ST" in upper:
+        return "SC/ST"
+
     if "SC" in upper:
         return "SC"
 
     if "ST" in upper:
         return "ST"
 
-    if "OBC" in upper:
-        return "OBC"
-
-    if "EWS" in upper:
-        return "EWS"
-
-    return "GENERAL AND OTHERS"
+    # OBC and EWS are not in the Excel AY valid set — map to GEN
+    # FIX: was returning 'GENERAL AND OTHERS'; must be 'GEN' for AY formula
+    return "GEN"
 
 
 # =========================================================
@@ -312,10 +324,27 @@ def apply_business_rules(
     if plot_size in PRICING:
 
         asset_cost = PRICING[plot_size]["asset_cost"]
-
         amt_financed = PRICING[plot_size]["amt_financed"]
 
-    # Final row
+    # Resolved category
+    resolved_category = normalize_category(
+        category_override or extracted.get("category")
+    )
+
+    # FIX: sc_st_flag was 'YES'/'NO' but template column AO uses 'Y'/'N'
+    sc_st_flag = (
+        "Y" if resolved_category in ("SC", "ST", "SC/ST") else "N"
+    )
+
+    # FIX: mobile must be stored as int so Excel ISNUMBER(AA{R}) = TRUE.
+    # only_digits() returns a string; wrapping in int() makes openpyxl
+    # write a numeric cell, which Excel recognises as a number.
+    raw_mobile = only_digits(extracted.get("mobile_no"))
+    try:
+        mobile = int(raw_mobile) if raw_mobile else None
+    except (ValueError, TypeError):
+        mobile = None
+
     row = {
 
         # Basic
@@ -327,21 +356,14 @@ def apply_business_rules(
             or extracted.get("form_no")
         ),
 
+        # Receipt: prefer override > handwritten > generic > printed
+        # only_digits() preserves leading zeros as a string, which is correct
+        # (storage writes it as-is; never cast to int)
         "receipt_no": (
             only_digits(receipt_override)
-            or only_digits(
-                extracted.get(
-                    "handwritten_receipt_no"
-                )
-            )
-            or only_digits(
-                extracted.get("receipt_no")
-            )
-            or only_digits(
-                extracted.get(
-                    "printed_receipt_no"
-                )
-            )
+            or only_digits(extracted.get("handwritten_receipt_no"))
+            or only_digits(extracted.get("receipt_no"))
+            or only_digits(extracted.get("printed_receipt_no"))
         ),
 
         "sourcing_branch": "",
@@ -353,84 +375,35 @@ def apply_business_rules(
 
         # Personal
         "dob": extracted.get("date_of_birth"),
-
         "gender": extracted.get("gender"),
-
-        "marital_status": extracted.get(
-            "marital_status"
-        ),
-
-        "category": normalize_category(
-            category_override
-            or extracted.get("category")
-        ),
-
-        "pan_no": extracted.get(
-            "pan_number"
-        ),
-
+        "marital_status": extracted.get("marital_status"),
+        "category": resolved_category,
+        "pan_no": extracted.get("pan_number"),
         "religion": "",
-
         "current_residence": "",
-
         "qualification": "",
-
-        "profession": (
-            extracted.get("employment_type")
-            or "SALARIED"
-        ),
+        "profession": extracted.get("employment_type") or "SALARIED",
 
         # Address
-        "address_1": extracted.get(
-            "mailing_address_1"
-        ),
-
-        "address_2": extracted.get(
-            "mailing_address_2"
-        ),
-
-        "address_3": extracted.get(
-            "mailing_address_3"
-        ),
-
-        "city": extracted.get(
-            "mailing_city"
-        ),
-
+        "address_1": extracted.get("mailing_address_1"),
+        "address_2": extracted.get("mailing_address_2"),
+        "address_3": extracted.get("mailing_address_3"),
+        "city": extracted.get("mailing_city"),
         "state": "",
-
-        "zip_code": extracted.get(
-            "mailing_pincode"
-        ),
+        "zip_code": extracted.get("mailing_pincode"),
 
         # Contact
         "phone_1": "",
-
         "phone_2": "",
-
-        "mobile": only_digits(
-            extracted.get("mobile_no")
-        ),
-
+        "mobile": mobile,   # FIX: now int, not string
         "email": extracted.get("email"),
 
         # Bank
         "repayment_mode": "AUTO DEBIT",
-
-        "account_no": extracted.get(
-            "account_number"
-        ),
-
+        "account_no": extracted.get("account_number"),
         "micr": "",
-
-        "ifsc": extracted.get(
-            "ifsc_code"
-        ),
-
-        "bank_name": extracted.get(
-            "bank_name"
-        ),
-
+        "ifsc": extracted.get("ifsc_code"),
+        "bank_name": extracted.get("bank_name"),
         "account_type": (
             account_type_override
             or extracted.get("account_type")
@@ -439,31 +412,18 @@ def apply_business_rules(
 
         # KYC
         "id_proof_no": "",
-
         "id_expiry": "",
-
         "id_doc_type": "",
-
         "address_proof_no": "",
-
         "address_expiry": "",
-
         "address_doc_type": "",
 
-        # SC/ST
-        "sc_st_flag": (
-            "YES"
-            if normalize_category(
-                extracted.get("category")
-            ) in ["SC", "ST"]
-            else "NO"
-        ),
+        # SC/ST Flag — FIX: 'Y'/'N' to match template column AO
+        "sc_st_flag": sc_st_flag,
 
         # Property
         "plot_size": plot_size,
-
         "asset_cost": asset_cost,
-
         "amt_financed": amt_financed,
 
         # Notes
