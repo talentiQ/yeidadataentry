@@ -192,12 +192,16 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     # PF Amount – fixed at ₹5,900
     ws[f"AS{next_row}"] = 5900
 
-    # Interest Amount – 10% of financed amount
-    try:
-        financed = float(row.get("amt_financed") or 0)
-        interest = round(financed * 0.10)
-    except Exception:
-        interest = ""
+    # Interest Amount — from YEIDA Rate Master (11% p.a. × 3 months).
+    # agent.py pre-computes this via _get_pricing() and stores it in row["interest_amt"].
+    # Fallback: compute from formula in case the field is absent (e.g. manual rows).
+    interest = row.get("interest_amt")
+    if interest is None:
+        try:
+            financed = float(row.get("amt_financed") or 0)
+            interest = round(financed * 0.11 * 3 / 12)   # 11% p.a. × 3 months
+        except Exception:
+            interest = ""
     ws[f"AT{next_row}"] = interest
 
     # ── Inject validation formulas for rows beyond template pre-fill ─────

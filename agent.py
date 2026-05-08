@@ -283,6 +283,29 @@ def normalize_category(value):
     return "GEN"
 
 
+def normalize_account_type(value, override=None):
+    """
+    Convert any account-type text (OCR or override) to the numeric code
+    that column AH in the YEIDA master sheet expects.
+
+    FIX: The improved OCR now correctly reads "SAVINGS" / "CURRENT" from
+    the NACH mandate form, but the Excel column AH uses numeric codes:
+      31 = Savings Bank
+      32 = Current Account
+    Without this normalisation, "SAVINGS" was being written to AH verbatim.
+    """
+    raw = str(override or value or "").strip().upper()
+
+    SAVINGS_ALIASES = {"31", "SAVINGS", "SB", "SAVING", "SAVINGS BANK", "SBACCOUNT"}
+    CURRENT_ALIASES = {"32", "10", "CURRENT", "CA", "CURRENT ACCOUNT"}
+
+    if raw in SAVINGS_ALIASES:
+        return "31"
+    if raw in CURRENT_ALIASES:
+        return "32"
+    return "31"   # default to Savings when unknown
+
+
 # =========================================================
 # NAME SPLIT
 # =========================================================
@@ -312,33 +335,38 @@ def split_name(full_name):
 # =========================================================
 # PRICING
 # =========================================================
+# Source: YEIDA Rate Master sheet — ICICI Bank YEIDA RPS-10/2026
+# Columns: plot_size → earnest_money, bank_loan, pf, interest_3m
+# Interest = Bank Loan × 11% p.a. × 3 months = Bank Loan × 0.0275
+# DO NOT edit these values manually — update from the Rate Master sheet.
 
 PRICING = {
-    162: {
-        "asset_cost": 5874120,
-        "amt_financed": 528671,
+    "GEN": {
+        162: {"earnest_money": 587412,  "amt_financed": 528671, "pf": 5900, "interest": 14538},
+        183: {"earnest_money": 663588,  "amt_financed": 597229, "pf": 5900, "interest": 16424},
+        184: {"earnest_money": 667184,  "amt_financed": 600466, "pf": 5900, "interest": 16513},
+        200: {"earnest_money": 725200,  "amt_financed": 652680, "pf": 5900, "interest": 17949},
+        223: {"earnest_money": 808598,  "amt_financed": 727738, "pf": 5900, "interest": 20013},
+        290: {"earnest_money": 1051540, "amt_financed": 946386, "pf": 5900, "interest": 26026},
     },
-    183: {
-        "asset_cost": 6635880,
-        "amt_financed": 597229,
-    },
-    184: {
-        "asset_cost": 6671840,
-        "amt_financed": 600466,
-    },
-    200: {
-        "asset_cost": 7252000,
-        "amt_financed": 652680,
-    },
-    223: {
-        "asset_cost": 8085980,
-        "amt_financed": 727738,
-    },
-    290: {
-        "asset_cost": 10515400,
-        "amt_financed": 946386,
+    "SC/ST": {
+        162: {"earnest_money": 293706,  "amt_financed": 264335, "pf": 5900, "interest": 7269},
+        183: {"earnest_money": 331779,  "amt_financed": 298601, "pf": 5900, "interest": 8212},
+        184: {"earnest_money": 333592,  "amt_financed": 300233, "pf": 5900, "interest": 8256},
+        200: {"earnest_money": 362600,  "amt_financed": 326340, "pf": 5900, "interest": 8974},
+        223: {"earnest_money": 404299,  "amt_financed": 363869, "pf": 5900, "interest": 10006},
+        290: {"earnest_money": 525770,  "amt_financed": 473193, "pf": 5900, "interest": 13013},
     },
 }
+
+def _get_pricing(plot_size: int, category: str) -> dict:
+    """
+    Look up rate master values for a given plot size and resolved category.
+    SC, ST, SC/ST all use the SC/ST table. Everything else uses GEN.
+    Returns an empty dict if plot_size is not a valid YEIDA size.
+    """
+    table_key = "SC/ST" if category in ("SC", "ST", "SC/ST") else "GEN"
+    return PRICING.get(table_key, {}).get(plot_size, {})
 
 
 # =========================================================
@@ -373,22 +401,20 @@ def apply_business_rules(
     except Exception:
         plot_size = None
 
-    # Pricing
-    asset_cost = None
-    amt_financed = None
-
-    if plot_size in PRICING:
-        asset_cost = PRICING[plot_size]["asset_cost"]
-        amt_financed = PRICING[plot_size]["amt_financed"]
-
-    # Resolved category
+    # Resolved category — must come BEFORE pricing lookup
     raw_category = category_override or extracted.get("category")
     resolved_category = normalize_category(raw_category)
 
-    # FIX: sc_st_flag uses 'Y'/'N' to match template column AO
-    sc_st_flag = (
-        "Y" if resolved_category in ("SC", "ST", "SC/ST") else "N"
-    )
+    # SC/ST flag — 'Y'/'N' to match template column AO
+    sc_st_flag = "Y" if resolved_category in ("SC", "ST", "SC/ST") else "N"
+
+    # Pricing — pulled directly from YEIDA Rate Master for the correct category table.
+    # SC/ST rates are pre-computed in the rate master (NOT a simple 50% of GEN —
+    # they differ due to YEIDA scheme rules). GEN rates apply for all other categories.
+    pricing = _get_pricing(plot_size, resolved_category) if plot_size else {}
+    asset_cost   = pricing.get("earnest_money")   # Earnest Money from rate master
+    amt_financed = pricing.get("amt_financed")    # Bank Loan from rate master
+    interest_amt = pricing.get("interest")        # Interest 3M @11% from rate master
 
     # FIX: mobile must be stored as int so Excel ISNUMBER(AA{R}) = TRUE.
     raw_mobile = only_digits(extracted.get("mobile_no"))
@@ -466,10 +492,10 @@ def apply_business_rules(
         "micr": "",
         "ifsc": extracted.get("ifsc_code"),
         "bank_name": extracted.get("bank_name"),
-        "account_type": (
-            account_type_override
-            or extracted.get("account_type")
-            or "31"
+        # FIX: normalize to numeric code ("31"/"32") — OCR may return "SAVINGS"/"CURRENT"
+        "account_type": normalize_account_type(
+            extracted.get("account_type"),
+            override=account_type_override,
         ),
 
         # KYC
@@ -483,10 +509,11 @@ def apply_business_rules(
         # SC/ST Flag — 'Y'/'N' to match template column AO
         "sc_st_flag": sc_st_flag,
 
-        # Property
+        # Property — values from YEIDA Rate Master (category + plot_size specific)
         "plot_size": plot_size,
-        "asset_cost": asset_cost,
-        "amt_financed": amt_financed,
+        "asset_cost": asset_cost,        # Earnest Money from rate master
+        "amt_financed": amt_financed,    # Bank Loan (90% of EMD) from rate master
+        "interest_amt": interest_amt,    # 3-month interest @11% p.a. from rate master
 
         # Notes — FIX: sol_id and category remapping now recorded here
         "notes": notes_value,
