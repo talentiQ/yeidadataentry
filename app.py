@@ -2,17 +2,11 @@ from __future__ import annotations
 
 import os
 import shutil
-<<<<<<< HEAD
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-=======
-import uuid
-from pathlib import Path
-from typing import List, Tuple
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 
 from dotenv import load_dotenv
 from flask import (
@@ -36,13 +30,10 @@ from storage import (
 
 load_dotenv()
 
-<<<<<<< HEAD
 # =========================================================
 # BASE PATHS
 # =========================================================
 
-=======
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 BASE_DIR = Path(__file__).resolve().parent
 
 UPLOAD_FOLDER = Path("/tmp/uploads")
@@ -58,7 +49,6 @@ JSON_LOG    = TEMP_DATA_DIR / "YEIDA_MASTER.json"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic", "heif"}
 ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {"pdf"}
 
-<<<<<<< HEAD
 # PDF SETTINGS
 PDF_DPI          = 100
 PDF_MAX_PAGES    = 25
@@ -84,14 +74,6 @@ _WRITE_LOCK = threading.Lock()
 # =========================================================
 
 # PyMuPDF
-=======
-# PDF render resolution
-PDF_DPI = 150
-PDF_MAX_PAGES = 20
-
-# PyMuPDF — imported at module level so Pylance can resolve it.
-# If not installed, PDF uploads will raise a clear RuntimeError at request time.
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 try:
     import fitz  # type: ignore[import]
     _FITZ_AVAILABLE = True
@@ -101,7 +83,6 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-this-secret-key")
-<<<<<<< HEAD
 
 app.config["MAX_CONTENT_LENGTH"] = (
     int(os.environ.get("MAX_CONTENT_LENGTH_MB", "1000")) * 1024 * 1024
@@ -110,12 +91,6 @@ app.config["MAX_CONTENT_LENGTH"] = (
 # =========================================================
 # FILE HELPERS
 # =========================================================
-=======
-app.config["MAX_CONTENT_LENGTH"] = (
-    int(os.environ.get("MAX_CONTENT_LENGTH_MB", "50")) * 1024 * 1024
-)
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -126,40 +101,23 @@ def is_pdf(filename: str) -> bool:
 
 
 def pdf_to_images(pdf_path: Path, output_dir: Path) -> List[Path]:
-<<<<<<< HEAD
     """Convert PDF pages to compressed JPEGs for OCR."""
     if not _FITZ_AVAILABLE or fitz is None:
         raise RuntimeError("PyMuPDF not installed. Run: pip install pymupdf")
-=======
-    """Convert each page of a scanned PDF to PNG using PyMuPDF."""
-    if not _FITZ_AVAILABLE or fitz is None:
-        raise RuntimeError(
-            "PyMuPDF is not installed. Run: pip install pymupdf"
-        )
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 
     mat = fitz.Matrix(PDF_DPI / 72, PDF_DPI / 72)
     image_paths: List[Path] = []
 
     with fitz.open(pdf_path) as doc:
-<<<<<<< HEAD
         for page_num in range(min(len(doc), PDF_MAX_PAGES)):
             pix      = doc[page_num].get_pixmap(matrix=mat, alpha=False)
             img_path = output_dir / f"{pdf_path.stem}_page_{page_num + 1:03d}.jpg"
             pix.save(str(img_path), output="jpeg", jpg_quality=PDF_JPEG_QUALITY)
-=======
-        total_pages = min(len(doc), PDF_MAX_PAGES)
-        for page_num in range(total_pages):
-            pix = doc[page_num].get_pixmap(matrix=mat, alpha=False)
-            img_path = output_dir / f"page_{page_num + 1:03d}.png"
-            pix.save(str(img_path))
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
             image_paths.append(img_path)
 
     return image_paths
 
 
-<<<<<<< HEAD
 def compress_image(src: Path, max_width: int = 1800) -> Path:
     """Resize + re-compress an image to reduce payload size."""
     try:
@@ -190,16 +148,6 @@ def save_uploaded_files(files) -> Tuple[List[Dict[str, Any]], Path]:
     batch_dir = UPLOAD_FOLDER / uuid.uuid4().hex[:12]
     batch_dir.mkdir(parents=True, exist_ok=True)
     applicants: List[Dict[str, Any]] = []
-=======
-def save_uploaded_files(files) -> Tuple[List[Path], Path]:
-    """
-    Save uploaded images or PDFs. PDFs are converted to per-page PNGs.
-    Returns (image_paths, batch_dir). Caller must clean up batch_dir.
-    """
-    batch_dir = UPLOAD_FOLDER / uuid.uuid4().hex[:12]
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    image_paths: List[Path] = []
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 
     for file in files:
         if not file or not file.filename:
@@ -207,17 +155,12 @@ def save_uploaded_files(files) -> Tuple[List[Path], Path]:
         if not allowed_file(file.filename):
             continue
 
-<<<<<<< HEAD
         filename   = secure_filename(file.filename)
-=======
-        filename = secure_filename(file.filename)
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
         saved_path = batch_dir / filename
         file.save(saved_path)
 
         if is_pdf(filename):
             pdf_images = pdf_to_images(saved_path, batch_dir)
-<<<<<<< HEAD
             applicants.append({"source": filename, "images": pdf_images})
             saved_path.unlink(missing_ok=True)
         else:
@@ -284,16 +227,6 @@ def _process_one_candidate(
 # ROUTES
 # =========================================================
 
-=======
-            image_paths.extend(pdf_images)
-            saved_path.unlink(missing_ok=True)  # free space after conversion
-        else:
-            image_paths.append(saved_path)
-
-    return image_paths, batch_dir
-
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 @app.route("/", methods=["GET"])
 def index():
     rows = read_all_rows_from_excel(MASTER_XLSX) if MASTER_XLSX.exists() else []
@@ -304,17 +237,13 @@ def index():
         master_xlsx_exists=MASTER_XLSX.exists(),
         master_xml_exists=MASTER_XML.exists(),
         upload_accept=".png,.jpg,.jpeg,.webp,.heic,.heif,.pdf",
-<<<<<<< HEAD
         max_workers=MAX_OCR_WORKERS,
-=======
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     )
 
 
 @app.route("/process", methods=["POST"])
 def process():
 
-<<<<<<< HEAD
     if not os.environ.get("OPENAI_API_KEY"):
         flash("OPENAI_API_KEY missing. Add it in your .env file first.", "error")
         return redirect(url_for("index"))
@@ -325,20 +254,6 @@ def process():
     applicants, batch_dir = save_uploaded_files(files)
 
     if not applicants:
-=======
-    if (
-        "OPENAI_API_KEY" not in os.environ
-        or not os.environ.get("OPENAI_API_KEY")
-    ):
-        flash("OPENAI_API_KEY missing. Add it in your .env file first.", "error")
-        return redirect(url_for("index"))
-
-    files = request.files.getlist("images")
-    batch_dir = None
-    image_paths, batch_dir = save_uploaded_files(files)
-
-    if not image_paths:
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
         flash(
             "Please upload at least one image or PDF. "
             "Accepted: jpg, jpeg, png, webp, heic, heif, pdf.",
@@ -348,7 +263,6 @@ def process():
             shutil.rmtree(batch_dir, ignore_errors=True)
         return redirect(url_for("index"))
 
-<<<<<<< HEAD
     # Build overrides dict — passed to every worker thread
     plot_size_raw = request.form.get("plot_size") or None
     try:
@@ -404,41 +318,6 @@ def process():
             total_entries=len(rows),
         )
 
-=======
-    account_type_override = request.form.get("account_type") or None
-    category_override     = request.form.get("category") or None
-    receipt_override      = request.form.get("receipt_no") or None
-    sol_id_override       = request.form.get("sol_id") or None
-    user_notes            = request.form.get("notes") or None
-
-    plot_size_override = request.form.get("plot_size") or None
-    try:
-        plot_size_override = int(plot_size_override) if plot_size_override else None
-    except (ValueError, TypeError):
-        plot_size_override = None
-
-    try:
-        extracted = extract_from_images(image_paths)
-
-        row = apply_business_rules(
-            extracted,
-            account_type_override=account_type_override,
-            category_override=category_override,
-            receipt_override=receipt_override,
-            sol_id_override=sol_id_override,
-            plot_size_override=plot_size_override,
-        )
-
-        if user_notes:
-            row["notes"] = f"{row.get('notes') or ''} {user_notes}".strip()
-
-        new_row_number = append_to_excel(row, MASTER_XLSX)
-        write_xml_from_excel(MASTER_XLSX, MASTER_XML)
-        append_json_log(row, JSON_LOG)
-
-        return render_template("result.html", row=row, row_number=new_row_number)
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     except Exception as exc:
         flash(f"Processing failed: {exc}", "error")
         return redirect(url_for("index"))
@@ -478,7 +357,6 @@ def entries():
     return render_template("entries.html", rows=rows)
 
 
-<<<<<<< HEAD
 # =========================================================
 # MAIN
 # =========================================================
@@ -489,9 +367,3 @@ if __name__ == "__main__":
     # threaded=True is required — Flask must handle concurrent requests
     # from the thread pool while the main request is still open.
     app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
-=======
-if __name__ == "__main__":
-    UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
-    TEMP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    app.run(host="0.0.0.0", port=5000, debug=True)
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09

@@ -9,17 +9,11 @@ from shutil import copyfile
 from typing import Dict, List
 
 from openpyxl import load_workbook
-<<<<<<< HEAD
-=======
-from openpyxl.utils import get_column_letter
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 
 # =========================================================
 # TEMPLATE FILE
 # =========================================================
 
-<<<<<<< HEAD
 import os
 
 BASE_DIR      = Path(__file__).resolve().parent
@@ -41,33 +35,6 @@ _VALIDATION_FORMULAS: Dict[str, str] = {
         'CODE(UPPER(MID(N{R},10,1)))>=65,CODE(UPPER(MID(N{R},10,1)))<=90'
         '),"✔ Valid PAN","✘ Invalid PAN"))'
     ),
-=======
-BASE_DIR = Path(__file__).resolve().parent
-
-TEMPLATE_FILE = BASE_DIR / "data" / "RPS_10_MASTER.xlsx"
-
-# Last row that has pre-filled validation formulas in the template (AU–BC).
-# Detected from the template: formulas exist through row 10050 → index 10050.
-TEMPLATE_FORMULA_MAX_ROW = 10050
-
-# Validation formula templates (row placeholder = "{R}").
-# These are injected for rows beyond TEMPLATE_FORMULA_MAX_ROW.
-_AU = (
-    '=IF(N{R}="","",IF(AND('
-    'LEN(TRIM(N{R}))=10,'
-    'CODE(UPPER(MID(N{R},1,1)))>=65,CODE(UPPER(MID(N{R},1,1)))<=90,'
-    'CODE(UPPER(MID(N{R},2,1)))>=65,CODE(UPPER(MID(N{R},2,1)))<=90,'
-    'CODE(UPPER(MID(N{R},3,1)))>=65,CODE(UPPER(MID(N{R},3,1)))<=90,'
-    'UPPER(MID(N{R},4,1))="P",'
-    'CODE(UPPER(MID(N{R},5,1)))>=65,CODE(UPPER(MID(N{R},5,1)))<=90,'
-    'ISNUMBER(VALUE(MID(N{R},6,1))),ISNUMBER(VALUE(MID(N{R},7,1))),'
-    'ISNUMBER(VALUE(MID(N{R},8,1))),ISNUMBER(VALUE(MID(N{R},9,1))),'
-    'CODE(UPPER(MID(N{R},10,1)))>=65,CODE(UPPER(MID(N{R},10,1)))<=90'
-    '),"✔ Valid PAN","✘ Invalid PAN"))'
-)
-_VALIDATION_FORMULAS: Dict[str, str] = {
-    "AU": _AU,
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     "AV": '=IF(N{R}="","",IF(COUNTIF($N$4:$N$10000,N{R})>1,"✗ DUPLICATE PAN","✓ Unique"))',
     "AW": '=IF(AA{R}="","",IF(COUNTIF($AA$4:$AA$10000,AA{R})>1,"✗ DUPLICATE Mobile","✓ Unique"))',
     "AX": '=IF(AP{R}="","",IF(ISNUMBER(MATCH(VALUE(AP{R}),{162,183,184,200,223,290},0)),"✔ Valid Size","✘ Invalid Size"))',
@@ -78,20 +45,10 @@ _VALIDATION_FORMULAS: Dict[str, str] = {
     "BC": (
         '=IF(AND(N{R}="",AP{R}=""),"",IF('
         'SUMPRODUCT(--(ISNUMBER(SEARCH({"DUPLICATE","ERROR","✗","Invalid"},AU{R}:BB{R}))))>0,'
-<<<<<<< HEAD
         '"✗ ERRORS – CHECK","✓ READY TO SUBMIT"))'
     ),
 }
 
-=======
-        '"✗ ERRORS – CHECK",'
-        '"✓ READY TO SUBMIT"'
-        '))'
-    ),
-}
-
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 # =========================================================
 # HELPERS
 # =========================================================
@@ -101,7 +58,6 @@ def ensure_parent(path: Path) -> None:
 
 
 def _find_next_empty_row(ws) -> int:
-<<<<<<< HEAD
     """Return the first row >= 4 where both col D and col E are blank."""
     row = 4
     while True:
@@ -113,40 +69,6 @@ def _find_next_empty_row(ws) -> int:
 def _inject_validation_formulas(ws, row: int) -> None:
     """Write AU–BC validation formulas for rows beyond the template pre-fill."""
     if row <= TEMPLATE_FORMULA_MAX_ROW:
-=======
-    """
-    Return the row number immediately after the last occupied data row.
-
-    FIX: The previous implementation searched for the FIRST empty row
-    starting from row 4. Because the template always has row 4 blank
-    (with Aditya or other pre-loaded data sitting in row 5+), every
-    new submission was written to row 4, overwriting itself each time.
-
-    This version scans all rows to find the LAST row that has content
-    in either col D (RPS No) or col E (Receipt No), then returns
-    last_occupied + 1 so new entries always append cleanly after
-    all existing data regardless of any gaps in the sheet.
-    """
-    last_data_row = 3  # row 3 is the header; data starts at row 4
-    for row in range(4, ws.max_row + 2):
-        d_val = ws.cell(row, 4).value  # col D = RPS No
-        e_val = ws.cell(row, 5).value  # col E = Receipt No
-        if d_val not in (None, "") or e_val not in (None, ""):
-            last_data_row = row
-    return last_data_row + 1
-
-
-def _inject_validation_formulas(ws, row: int) -> None:
-    """
-    Write validation formulas for columns AU–BC at *row*.
-
-    The template pre-fills these formulas through TEMPLATE_FORMULA_MAX_ROW.
-    For rows beyond that limit the formulas are absent, so we inject them
-    here to keep validation consistent for every appended row.
-    """
-    if row <= TEMPLATE_FORMULA_MAX_ROW:
-        # Formula already present from the template – nothing to do.
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
         return
     for col, tmpl in _VALIDATION_FORMULAS.items():
         ws[f"{col}{row}"] = tmpl.replace("{R}", str(row))
@@ -157,7 +79,6 @@ def _inject_validation_formulas(ws, row: int) -> None:
 # =========================================================
 
 def append_to_excel(row: Dict, output_path: Path) -> int:
-<<<<<<< HEAD
     """
     Append one candidate row to the master Excel.
     Creates the file from template on first call.
@@ -174,46 +95,14 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     next_row = _find_next_empty_row(ws)
 
     ws[f"A{next_row}"] = next_row - 3
-=======
-
-    ensure_parent(output_path)
-
-    # ── Create output from template the first time ──────────────────────
-    if not output_path.exists():
-        copyfile(TEMPLATE_FILE, output_path)
-
-    # ── Load WITHOUT data_only so formulas are preserved ────────────────
-    # Loading with data_only=True and then saving would permanently strip
-    # all formula strings from AU–BC, leaving those cells blank forever.
-    wb = load_workbook(output_path)
-    ws = wb.active
-
-    # ── Find next append row (always after last occupied row) ────────────
-    next_row = _find_next_empty_row(ws)
-
-    # ── Serial number ────────────────────────────────────────────────────
-    ws[f"A{next_row}"] = next_row - 3
-
-    # ── Basic details ────────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"B{next_row}"] = row.get("lot_no", "")
     ws[f"C{next_row}"] = row.get("file_no", "")
     ws[f"D{next_row}"] = row.get("rps_no", "")
     ws[f"E{next_row}"] = row.get("receipt_no", "")
     ws[f"F{next_row}"] = row.get("sourcing_branch", "")
-<<<<<<< HEAD
     ws[f"G{next_row}"] = row.get("first_name", "")
     ws[f"H{next_row}"] = row.get("middle_name", "")
     ws[f"I{next_row}"] = row.get("last_name", "")
-=======
-
-    # ── Name ─────────────────────────────────────────────────────────────
-    ws[f"G{next_row}"] = row.get("first_name", "")
-    ws[f"H{next_row}"] = row.get("middle_name", "")
-    ws[f"I{next_row}"] = row.get("last_name", "")
-
-    # ── Personal details ─────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"J{next_row}"] = row.get("dob", "")
     ws[f"K{next_row}"] = row.get("gender", "")
     ws[f"L{next_row}"] = row.get("marital_status", "")
@@ -223,49 +112,28 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
     ws[f"P{next_row}"] = row.get("current_residence", "")
     ws[f"Q{next_row}"] = row.get("qualification", "")
     ws[f"R{next_row}"] = row.get("profession", "")
-<<<<<<< HEAD
-=======
-
-    # ── Address ──────────────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"S{next_row}"] = row.get("address_1", "")
     ws[f"T{next_row}"] = row.get("address_2", "")
     ws[f"U{next_row}"] = row.get("address_3", "")
     ws[f"V{next_row}"] = row.get("city", "")
     ws[f"W{next_row}"] = row.get("state", "")
     ws[f"X{next_row}"] = row.get("zip_code", "")
-<<<<<<< HEAD
-=======
-
-    # ── Contact ──────────────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"Y{next_row}"] = row.get("phone_1", "")
     ws[f"Z{next_row}"] = row.get("phone_2", "")
     ws[f"AA{next_row}"] = row.get("mobile", "")
     ws[f"AB{next_row}"] = row.get("email", "")
-<<<<<<< HEAD
-=======
-
-    # ── Bank details ─────────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"AC{next_row}"] = row.get("repayment_mode", "")
     ws[f"AD{next_row}"] = row.get("account_no", "")
     ws[f"AE{next_row}"] = row.get("micr", "")
     ws[f"AF{next_row}"] = row.get("ifsc", "")
     ws[f"AG{next_row}"] = row.get("bank_name", "")
     ws[f"AH{next_row}"] = row.get("account_type", "")
-<<<<<<< HEAD
-=======
-
-    # ── KYC ──────────────────────────────────────────────────────────────
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ws[f"AI{next_row}"] = row.get("id_proof_no", "")
     ws[f"AJ{next_row}"] = row.get("id_expiry", "")
     ws[f"AK{next_row}"] = row.get("id_doc_type", "")
     ws[f"AL{next_row}"] = row.get("address_proof_no", "")
     ws[f"AM{next_row}"] = row.get("address_expiry", "")
     ws[f"AN{next_row}"] = row.get("address_doc_type", "")
-<<<<<<< HEAD
     ws[f"AO{next_row}"] = row.get("sc_st_flag", "")
     ws[f"AP{next_row}"] = row.get("plot_size", "")
     ws[f"AQ{next_row}"] = row.get("asset_cost", "")
@@ -279,74 +147,21 @@ def append_to_excel(row: Dict, output_path: Path) -> int:
 
     _inject_validation_formulas(ws, next_row)
     wb.save(output_path)
-=======
-
-    # ── SC/ST ─────────────────────────────────────────────────────────────
-    ws[f"AO{next_row}"] = row.get("sc_st_flag", "")
-
-    # ── Property ─────────────────────────────────────────────────────────
-    ws[f"AP{next_row}"] = row.get("plot_size", "")
-    ws[f"AQ{next_row}"] = row.get("asset_cost", "")
-    ws[f"AR{next_row}"] = row.get("amt_financed", "")
-
-    # PF Amount – fixed at ₹5,900
-    ws[f"AS{next_row}"] = 5900
-
-    # Interest Amount — from YEIDA Rate Master (11% p.a. × 3 months).
-    # agent.py pre-computes this via _get_pricing() and stores it in row["interest_amt"].
-    # Fallback: compute from formula in case the field is absent (e.g. manual rows).
-    interest = row.get("interest_amt")
-    if interest is None:
-        try:
-            financed = float(row.get("amt_financed") or 0)
-            interest = round(financed * 0.11 * 3 / 12)   # 11% p.a. × 3 months
-        except Exception:
-            interest = ""
-    ws[f"AT{next_row}"] = interest
-
-    # ── Inject validation formulas for rows beyond template pre-fill ─────
-    _inject_validation_formulas(ws, next_row)
-
-    # ── Save ─────────────────────────────────────────────────────────────
-    wb.save(output_path)
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     return next_row
 
 
 # =========================================================
-<<<<<<< HEAD
 # READ ALL ROWS
-=======
-# READ ALL ROWS FROM EXCEL
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 # =========================================================
 
 def read_all_rows_from_excel(path: Path) -> List[Dict]:
     """
-<<<<<<< HEAD
     Read all data rows from the master Excel as a list of dicts.
     Returns an empty list if the file does not exist.
-=======
-    Read every data row (row 4+) that has at least one non-blank value
-    in the core identifier columns (D = RPS No, E = Receipt No).
-
-    Validation columns AU–BC contain Excel formula strings when opened
-    without data_only, so we evaluate them locally using _compute_validation()
-    as a fallback when cached results are absent.
-
-    Returns a list of dicts keyed by column letter for data columns, plus
-    a "validation" sub-dict for AU–BC derived values.
-
-    Performance note: the template pre-fills formulas through row 10050,
-    so ws.max_row returns 10050 even for a file with 2 data rows. We stop
-    scanning after 100 consecutive empty rows to avoid reading all 10,050.
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     """
     if not path.exists():
         return []
 
-<<<<<<< HEAD
     wb = load_workbook(path, data_only=True)
     ws = wb.active
     assert ws is not None, "Workbook has no active sheet"
@@ -380,147 +195,13 @@ def read_all_rows_from_excel(path: Path) -> List[Dict]:
     return rows_out
 
 
-=======
-    # Load WITH data_only=True to read cached cell values rather than
-    # raw formula strings. Note: if the file was never opened in real Excel,
-    # formula results (AU–BC) may be None; _compute_validation() handles that.
-    wb = load_workbook(path, data_only=True)
-    ws = wb.active
-
-    # Column letter → friendly key mapping for data columns A–AT
-    DATA_COLS = {
-        "A": "serial_no", "B": "lot_no", "C": "file_no",
-        "D": "rps_no", "E": "receipt_no", "F": "sourcing_branch",
-        "G": "first_name", "H": "middle_name", "I": "last_name",
-        "J": "dob", "K": "gender", "L": "marital_status",
-        "M": "category", "N": "pan_no", "O": "religion",
-        "P": "current_residence", "Q": "qualification", "R": "profession",
-        "S": "address_1", "T": "address_2", "U": "address_3",
-        "V": "city", "W": "state", "X": "zip_code",
-        "Y": "phone_1", "Z": "phone_2", "AA": "mobile",
-        "AB": "email", "AC": "repayment_mode", "AD": "account_no",
-        "AE": "micr", "AF": "ifsc", "AG": "bank_name",
-        "AH": "account_type", "AI": "id_proof_no", "AJ": "id_expiry",
-        "AK": "id_doc_type", "AL": "address_proof_no",
-        "AM": "address_expiry", "AN": "address_doc_type",
-        "AO": "sc_st_flag", "AP": "plot_size", "AQ": "asset_cost",
-        "AR": "amt_financed", "AS": "pf_amount", "AT": "interest_amt",
-    }
-    VAL_COLS = {
-        "AU": "pan_format", "AV": "pan_duplicate",
-        "AW": "mobile_duplicate", "AX": "plot_size_check",
-        "AY": "category_check", "AZ": "ifsc_check",
-        "BA": "mobile_format", "BB": "rps_no_check",
-        "BC": "overall_status",
-    }
-
-    rows_out = []
-    empty_streak = 0  # FIX: stop scanning after 100 consecutive empty rows
-
-    for r in range(4, ws.max_row + 1):
-        # Read data columns
-        data = {key: ws[f"{col}{r}"].value for col, key in DATA_COLS.items()}
-
-        # Skip blank rows, but track consecutive empties for early exit
-        if data["rps_no"] in (None, "") and data["receipt_no"] in (None, ""):
-            empty_streak += 1
-            if empty_streak > 100:
-                break
-            continue
-
-        empty_streak = 0  # reset on finding a real row
-
-        # Read validation columns (data_only=True returns cached formula result
-        # if Excel last saved with calculated values; otherwise None)
-        validation = {key: ws[f"{col}{r}"].value for col, key in VAL_COLS.items()}
-
-        # If cached validation values are absent (None), compute them locally
-        # so the caller always gets meaningful status information.
-        if validation["overall_status"] is None:
-            validation = _compute_validation(data)
-
-        rows_out.append({**data, "validation": validation})
-
-    return rows_out
-
-
-def _compute_validation(data: Dict) -> Dict:
-    """
-    Pure-Python mirror of the AU–BC Excel formulas.
-    Called when the workbook was opened with data_only=True but the
-    formula results were not cached (i.e., never opened in real Excel).
-    """
-    pan = str(data.get("pan_no") or "").strip().upper()
-    mobile = data.get("mobile")
-    plot = data.get("plot_size")
-    category = str(data.get("category") or "").strip().upper()
-    ifsc = str(data.get("ifsc") or "").strip()
-    repay = str(data.get("repayment_mode") or "").strip().upper()
-    rps = str(data.get("rps_no") or "").strip()
-
-    # AU – PAN format (3 alpha + P + 1 alpha + 4 digits + 1 alpha = 10 chars)
-    pan_ok = bool(re.match(r'^[A-Z]{3}P[A-Z]\d{4}[A-Z]$', pan)) if pan else None
-    au = "✔ Valid PAN" if pan_ok else ("✘ Invalid PAN" if pan else "")
-
-    # AV – PAN duplicate: can't check without full dataset, mark unknown
-    av = "⚠ Dup check N/A"
-
-    # AW – Mobile duplicate: same limitation
-    aw = "⚠ Dup check N/A"
-
-    # AX – Plot size
-    valid_sizes = {162, 183, 184, 200, 223, 290}
-    try:
-        ax = "✔ Valid Size" if int(float(plot)) in valid_sizes else "✘ Invalid Size"
-    except Exception:
-        ax = "" if not plot else "✘ Invalid Size"
-
-    # AY – Category (matches Excel: GEN | SC/ST | SC | ST)
-    ay = "✔ Valid Cat" if category in {"GEN", "SC/ST", "SC", "ST"} else ("✘ Invalid Cat" if category else "")
-
-    # AZ – IFSC / repayment mode
-    if not repay and not ifsc:
-        az = ""
-    elif repay == "AUTO DEBIT":
-        az = "✔ Valid IFSC"
-    else:
-        az = "✔ Valid IFSC" if len(ifsc) == 11 else "✘ Invalid IFSC"
-
-    # BA – Mobile format (10 digits)
-    try:
-        mob_str = str(int(float(mobile))) if mobile is not None else ""
-        ba = "✔ Valid Mob" if len(mob_str) == 10 else "✘ Invalid Mob"
-    except Exception:
-        ba = "" if not mobile else "✘ Invalid Mob"
-
-    # BB – RPS No (12 chars, uppercase alphanumeric)
-    bb = "✔ Valid RPS" if (len(rps) == 12 and rps == rps.upper()) else ("✘ RPS Must Be 12 Chars" if rps else "")
-
-    # BC – Overall status
-    errors = [v for v in [au, av, aw, ax, ay, az, ba, bb]
-              if any(kw in str(v) for kw in ("DUPLICATE", "ERROR", "✗", "Invalid", "✘"))]
-    bc = "✓ READY TO SUBMIT" if (pan or plot) and not errors else ("✗ ERRORS – CHECK" if errors else "")
-
-    return {
-        "pan_format": au, "pan_duplicate": av, "mobile_duplicate": aw,
-        "plot_size_check": ax, "category_check": ay, "ifsc_check": az,
-        "mobile_format": ba, "rps_no_check": bb, "overall_status": bc,
-    }
-
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
 # =========================================================
 # XML EXPORT
 # =========================================================
 
 def write_xml_from_excel(xlsx_path: Path, xml_path: Path) -> None:
-<<<<<<< HEAD
     """Rebuild the XML export from the current Excel data."""
     rows = read_all_rows_from_excel(xlsx_path)
-=======
-    rows = read_all_rows_from_excel(xlsx_path)
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     root = ET.Element("RPSApplications")
     root.set("generated_at", datetime.now().isoformat())
     root.set("count", str(len(rows)))
@@ -528,24 +209,10 @@ def write_xml_from_excel(xlsx_path: Path, xml_path: Path) -> None:
     for idx, row_data in enumerate(rows, start=1):
         app_el = ET.SubElement(root, "Application")
         app_el.set("row", str(idx))
-<<<<<<< HEAD
-=======
-
-        # Flatten validation sub-dict into the element
-        validation = row_data.pop("validation", {})
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
         for key, value in row_data.items():
             child = ET.SubElement(app_el, key)
             child.text = "" if value is None else str(value)
 
-<<<<<<< HEAD
-=======
-        val_el = ET.SubElement(app_el, "validation")
-        for key, value in validation.items():
-            child = ET.SubElement(val_el, key)
-            child.text = "" if value is None else str(value)
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     ensure_parent(xml_path)
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
@@ -557,29 +224,18 @@ def write_xml_from_excel(xlsx_path: Path, xml_path: Path) -> None:
 # =========================================================
 
 def append_json_log(row: Dict, json_path: Path) -> None:
-<<<<<<< HEAD
     """Append one row to the running JSON log file."""
     ensure_parent(json_path)
     existing: List[Dict] = []
-=======
-    ensure_parent(json_path)
-
-    existing = []
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     if json_path.exists():
         try:
             existing = json.loads(json_path.read_text(encoding="utf-8"))
         except Exception:
             existing = []
-<<<<<<< HEAD
-=======
-
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
     existing.append({"saved_at": datetime.now().isoformat(), **row})
     json_path.write_text(
         json.dumps(existing, indent=2, ensure_ascii=False),
         encoding="utf-8",
-<<<<<<< HEAD
     )
 
 
@@ -647,6 +303,3 @@ def _compute_validation(data: Dict) -> Dict:
         "rps_no_check":     bb,
         "overall_status":   bc,
     }
-=======
-    )
->>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09

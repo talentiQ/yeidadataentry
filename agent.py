@@ -194,7 +194,7 @@ def extract_from_images(
 
     model = model or os.environ.get(
         "OPENAI_MODEL",
-        "gpt-4.1-mini",
+        "gpt-5.5-mini",
     )
 
     # Build user content: text instruction + one image block per page
