@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+
+  {% if success_count > 0 %}
+  <div class="result-banner success">
+    <span class="result-icon">&#10003;</span>
+    <div>
+      <h2>{{ success_count }} candidate{{ 's' if success_count != 1 else '' }} saved successfully</h2>
+      <p>Master Excel and XML have been updated. Total entries in file: {{ total_entries }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if failed_count > 0 %}
+  <div class="result-banner error" style="margin-top:1rem">
+    <span class="result-icon">&#10007;</span>
+    <div>
+      <h2>{{ failed_count }} file{{ 's' if failed_count != 1 else '' }} failed</h2>
+      <p>The files below could not be processed. Check the errors and re-upload individually.</p>
+    </div>
+  </div>
+
+  <table class="failed-table">
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in failed_files %}
+      <tr>
+        <td class="filename">{{ f.file }}</td>
+        <td class="errmsg">{{ f.error }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if success_count == 0 and failed_count == 0 %}
+  <div class="result-banner info">
+    <span class="result-icon">&#8505;</span>
+    <div>
+      <h2>No files were processed</h2>
+      <p>Please upload at least one PDF or image file.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="btn-row" style="margin-top:1.5rem">
+    <a class="btn primary" href="{{ url_for('index') }}">Upload more candidates</a>
+    <a class="btn secondary" href="{{ url_for('entries') }}">View all entries</a>
+    {% if success_count > 0 %}
+    <a class="btn secondary" href="{{ url_for('download_excel') }}">Download Excel</a>
+    <a class="btn secondary" href="{{ url_for('download_xml') }}">Download XML</a>
+    {% endif %}
+  </div>
+
+</div>
+
+<style>
+.result-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 8px;
+  border-left: 5px solid;
+}
+.result-banner.success {
+  background: #f0faf4;
+  border-color: #27ae60;
+}
+.result-banner.error {
+  background: #fdf0f0;
+  border-color: #c0392b;
+}
+.result-banner.info {
+  background: #f0f4fb;
+  border-color: #4a6fa5;
+}
+.result-banner h2 { margin: 0 0 .25rem; font-size: 1.1rem; }
+.result-banner p  { margin: 0; font-size: .9rem; opacity: .85; }
+.result-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  margin-top: .1rem;
+  flex-shrink: 0;
+}
+.result-banner.success .result-icon { color: #27ae60; }
+.result-banner.error   .result-icon { color: #c0392b; }
+.result-banner.info    .result-icon { color: #4a6fa5; }
+
+.failed-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  font-size: .9rem;
+}
+.failed-table th {
+  text-align: left;
+  padding: .5rem .75rem;
+  background: #fdf0f0;
+  border-bottom: 2px solid #c0392b;
+  font-weight: 600;
+}
+.failed-table td {
+  padding: .5rem .75rem;
+  border-bottom: 1px solid #f0dede;
+  vertical-align: top;
+}
+.failed-table .filename {
+  font-weight: 500;
+  white-space: nowrap;
+  color: #333;
+  width: 35%;
+}
+.failed-table .errmsg {
+  color: #c0392b;
+  font-family: monospace;
+  font-size: .82rem;
+  word-break: break-word;
+}
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+</style>
+
+{% endblock %}

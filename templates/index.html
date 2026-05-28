@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h1>YEIDA RPS Form — Data Entry Agent</h1>
+  <p>Upload one or more PDFs (or images). Each file = one applicant. All candidates are processed in parallel and appended to the master Excel.</p>
+
+  <div class="status">
+    <div class="pill">Total entries: {{ total_entries }}</div>
+    <div class="pill">Default account type: {{ default_account_type }}</div>
+    <div class="pill">Workers: {{ max_workers }} parallel</div>
+    <div class="pill">Employment: SALARIED</div>
+  </div>
+
+  <div class="btn-row">
+    <a class="btn light" href="{{ url_for('entries') }}">View entries</a>
+    {% if master_xlsx_exists %}
+      <a class="btn secondary" href="{{ url_for('download_excel') }}">Download Excel</a>
+    {% endif %}
+    {% if master_xml_exists %}
+      <a class="btn secondary" href="{{ url_for('download_xml') }}">Download XML</a>
+    {% endif %}
+    <a class="btn secondary" href="{{ url_for('download_json') }}">Download JSON</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Bulk upload — multiple candidates</h2>
+  <p class="small">
+    Each uploaded file is treated as <strong>one applicant</strong>.
+    Upload multiple PDFs at once to process all candidates in one go.
+    Include all pages (form, bank page, receipt, cheque copy) in a single PDF per applicant.
+  </p>
+
+  <form id="upload-form" action="{{ url_for('process') }}" method="post" enctype="multipart/form-data">
+
+    <!-- FILE INPUT -->
+    <div class="upload-box" id="upload-box">
+      <label for="file-input" class="upload-label">
+        <span class="upload-icon">&#8679;</span>
+        <span id="upload-text">Click to select files or drag and drop</span>
+        <span class="small">PDF, JPG, PNG, WEBP — one file per applicant</span>
+      </label>
+      <input
+        type="file"
+        id="file-input"
+        name="images"
+        multiple
+        accept="{{ upload_accept }}"
+        style="display:none"
+        onchange="updateFileLabel(this)"
+      >
+    </div>
+
+    <!-- SELECTED FILES PREVIEW -->
+    <div id="file-list" class="file-list" style="display:none"></div>
+
+    <!-- OVERRIDES -->
+    <details class="overrides-panel">
+      <summary>Override options <span class="small">(optional — use only if OCR misses a field)</span></summary>
+      <div class="grid3" style="margin-top:1rem">
+        <div>
+          <label>Account Type</label>
+          <select name="account_type">
+            <option value="">Use extracted / default (31)</option>
+            <option value="31">31 — Savings</option>
+            <option value="10">10 — Current</option>
+            <option value="29">29 — NRE</option>
+          </select>
+        </div>
+        <div>
+          <label>Category</label>
+          <select name="category">
+            <option value="">Use extracted</option>
+            <option value="GENERAL AND OTHERS">GENERAL AND OTHERS</option>
+            <option value="SC">SC</option>
+            <option value="ST">ST</option>
+            <option value="OBC">OBC</option>
+            <option value="EWS">EWS</option>
+          </select>
+        </div>
+        <div>
+          <label>Plot Size</label>
+          <select name="plot_size">
+            <option value="">Use extracted</option>
+            <option value="162">162 sqm</option>
+            <option value="183">183 sqm</option>
+            <option value="184">184 sqm</option>
+            <option value="200">200 sqm</option>
+            <option value="223">223 sqm</option>
+            <option value="290">290 sqm</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid3">
+        <div>
+          <label>SOL ID Override</label>
+          <input type="text" name="sol_id" placeholder="e.g. 7237">
+        </div>
+        <div>
+          <label>Receipt No Override</label>
+          <input type="text" name="receipt_no" placeholder="Only if handwriting is unclear">
+        </div>
+        <div>
+          <label>Notes</label>
+          <input type="text" name="notes" placeholder="Optional notes for all rows in this batch">
+        </div>
+      </div>
+    </details>
+
+    <!-- SUBMIT -->
+    <button type="submit" id="submit-btn" class="btn primary" disabled>
+      Select files to continue
+    </button>
+
+  </form>
+
+  <!-- PROGRESS (shown after submit) -->
+  <div id="progress-section" style="display:none; margin-top:1.5rem">
+    <div class="progress-header">
+      <span id="progress-label">Processing…</span>
+      <span id="progress-count"></span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
+    </div>
+    <div id="progress-log" class="progress-log"></div>
+  </div>
+</div>
+
+<style>
+.btn-row { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem; }
+
+.upload-box {
+  border: 2px dashed var(--border, #ccc);
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s;
+  margin-bottom: 1rem;
+}
+.upload-box:hover, .upload-box.dragover { border-color: #4a6fa5; }
+.upload-label { cursor: pointer; display:flex; flex-direction:column; gap:.4rem; align-items:center; }
+.upload-icon { font-size: 2rem; line-height:1; }
+
+.file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-bottom: 1rem;
+}
+.file-chip {
+  background: #e8f0fb;
+  border-radius: 20px;
+  padding: .25rem .75rem;
+  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.file-chip .ext-badge {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: #4a6fa5;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.file-chip .ext-badge.pdf { background: #c0392b; }
+.file-chip .ext-badge.img { background: #27ae60; }
+
+.overrides-panel {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  padding: .75rem 1rem;
+  margin-bottom: 1rem;
+}
+.overrides-panel summary {
+  cursor: pointer;
+  font-weight: 500;
+  user-select: none;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: .4rem;
+  font-weight: 500;
+}
+.progress-bar-track {
+  background: #e0e0e0;
+  border-radius: 8px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: .75rem;
+}
+.progress-bar-fill {
+  background: #4a6fa5;
+  height: 100%;
+  border-radius: 8px;
+  transition: width .3s ease;
+}
+.progress-log {
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: .85rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+.log-entry {
+  padding: .3rem .6rem;
+  border-radius: 4px;
+  border-left: 3px solid #ccc;
+}
+.log-entry.ok  { border-color: #27ae60; background: #f0faf4; }
+.log-entry.err { border-color: #c0392b; background: #fdf0f0; }
+.log-entry.info{ border-color: #4a6fa5; background: #f0f4fb; }
+</style>
+
+<script>
+const fileInput   = document.getElementById('file-input');
+const uploadBox   = document.getElementById('upload-box');
+const uploadText  = document.getElementById('upload-text');
+const fileListEl  = document.getElementById('file-list');
+const submitBtn   = document.getElementById('submit-btn');
+const form        = document.getElementById('upload-form');
+
+// Drag-and-drop on upload box
+uploadBox.addEventListener('dragover', e => { e.preventDefault(); uploadBox.classList.add('dragover'); });
+uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('dragover'));
+uploadBox.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadBox.classList.remove('dragover');
+  fileInput.files = e.dataTransfer.files;
+  updateFileLabel(fileInput);
+});
+uploadBox.addEventListener('click', () => fileInput.click());
+
+function updateFileLabel(input) {
+  const files = Array.from(input.files);
+  if (!files.length) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Select files to continue';
+    fileListEl.style.display = 'none';
+    return;
+  }
+
+  uploadText.textContent = `${files.length} file${files.length > 1 ? 's' : ''} selected`;
+  submitBtn.disabled = false;
+  submitBtn.textContent = `Process ${files.length} candidate${files.length > 1 ? 's' : ''}`;
+
+  // Render file chips
+  fileListEl.innerHTML = files.map(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    const badgeClass = ext === 'pdf' ? 'pdf' : 'img';
+    return `<div class="file-chip">
+      <span class="ext-badge ${badgeClass}">${ext}</span>
+      ${f.name}
+    </div>`;
+  }).join('');
+  fileListEl.style.display = 'flex';
+}
+
+// Show progress bar on submit
+form.addEventListener('submit', function() {
+  const files = Array.from(fileInput.files);
+  if (!files.length) return;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Processing…';
+
+  const progressSection = document.getElementById('progress-section');
+  const progressBar     = document.getElementById('progress-bar');
+  const progressLabel   = document.getElementById('progress-label');
+  const progressCount   = document.getElementById('progress-count');
+  const progressLog     = document.getElementById('progress-log');
+
+  progressSection.style.display = 'block';
+  progressLabel.textContent = `Processing ${files.length} candidate${files.length > 1 ? 's' : ''}…`;
+  progressCount.textContent = `0 / ${files.length}`;
+
+  // Animate progress bar to ~80% while waiting (actual result comes via redirect)
+  let pct = 0;
+  const interval = setInterval(() => {
+    pct = Math.min(pct + (80 / (files.length * 12)), 80);
+    progressBar.style.width = pct + '%';
+  }, 500);
+
+  // Log each filename as queued
+  files.forEach((f, i) => {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry info';
+    entry.id = `log-${i}`;
+    entry.textContent = `⏳ ${f.name}`;
+    progressLog.appendChild(entry);
+  });
+
+  // When page unloads (redirect to result), fill bar
+  window.addEventListener('beforeunload', () => {
+    clearInterval(interval);
+    progressBar.style.width = '100%';
+  });
+});
+</script>
+
+{% endblock %}

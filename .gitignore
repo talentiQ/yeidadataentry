@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+uploads/*
+data/*.xlsx
+data/*.xml
+data/*.json
+!.gitkeep
+
+.vercel
+.env*.local
