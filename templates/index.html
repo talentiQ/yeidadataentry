@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<<<<<<< HEAD
 
 <div class="card">
   <h1>YEIDA RPS Form — Data Entry Agent</h1>
@@ -307,3 +308,67 @@ form.addEventListener('submit', function() {
 </script>
 
 {% endblock %}
+=======
+<div class="card">
+  <h1>YEIDA Image → Excel/XML Automation Agent</h1>
+  <p>Upload all images for one applicant together. The agent extracts details, applies your rules, appends the applicant to the next row, and regenerates the XML.</p>
+  <div class="status">
+    <div class="pill">Total entries: {{ total_entries }}</div>
+    <div class="pill">Default account type: {{ default_account_type }}</div>
+    <div class="pill">Employment: SALARIED</div>
+  </div>
+  <a class="btn light" href="{{ url_for('entries') }}">View entries</a>
+  {% if master_xlsx_exists %}<a class="btn secondary" href="{{ url_for('download_excel') }}">Download Excel</a>{% endif %}
+  {% if master_xml_exists %}<a class="btn secondary" href="{{ url_for('download_xml') }}">Download XML</a>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Upload applicant images</h2>
+  <form action="{{ url_for('process') }}" method="post" enctype="multipart/form-data">
+    <label>Images for one applicant</label>
+       <input type="file" name="images" multiple accept="{{ upload_accept }}">
+    <p class="small">Upload form pages, bank page, receipt page, and handwritten cover page together.</p>
+
+    <div class="grid3">
+      <div>
+        <label>Account Type Override</label>
+        <select name="account_type">
+          <option value="">Use extracted/default</option>
+          <option value="31">31</option>
+          <option value="10">10</option>
+          <option value="29">29</option>
+        </select>
+      </div>
+      <div>
+        <label>Category Override</label>
+        <select name="category">
+          <option value="">Use extracted</option>
+          <option value="GENERAL AND OTHERS">GENERAL AND OTHERS</option>
+          <option value="SC">SC</option>
+          <option value="ST">ST</option>
+          <option value="OBC">OBC</option>
+          <option value="EWS">EWS</option>
+        </select>
+      </div>
+      <div>
+        <label>SOL ID Override</label>
+        <input type="text" name="sol_id" placeholder="e.g. 7237">
+      </div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <label>Receipt No Override</label>
+        <input type="text" name="receipt_no" placeholder="Use only if blue circle/handwriting is unclear">
+      </div>
+      <div>
+        <label>Notes</label>
+        <input type="text" name="notes" placeholder="Optional notes for this row">
+      </div>
+    </div>
+
+    <button type="submit">Extract and add next row</button>
+  </form>
+</div>
+{% endblock %}
+>>>>>>> 1ff615e8134835d15bece98a02955ed2f494de09
